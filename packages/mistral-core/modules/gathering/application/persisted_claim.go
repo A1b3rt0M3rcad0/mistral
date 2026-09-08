@@ -61,10 +61,11 @@ func (s PersistedClaimService) Execute(ctx context.Context, command ClaimCommand
 		return ClaimCommandResult{}, err
 	}
 	requestHash := persistence.HashRequest(intent)
+	scope := gatheringClaimScope + ":" + command.SessionID
 	var result ClaimCommandResult
 
 	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
-		claim, err := s.ledger.Claim(txCtx, persistence.ClaimRequest{Scope: gatheringClaimScope, Key: command.IdempotencyKey, RequestHash: requestHash, ClaimedAt: command.Now})
+		claim, err := s.ledger.Claim(txCtx, persistence.ClaimRequest{Scope: scope, Key: command.IdempotencyKey, RequestHash: requestHash, ClaimedAt: command.Now})
 		if err != nil {
 			return err
 		}
@@ -113,7 +114,7 @@ func (s PersistedClaimService) Execute(ctx context.Context, command ClaimCommand
 		if err != nil {
 			return err
 		}
-		_, err = s.ledger.Complete(txCtx, gatheringClaimScope, command.IdempotencyKey, requestHash, response, command.Now)
+		_, err = s.ledger.Complete(txCtx, scope, command.IdempotencyKey, requestHash, response, command.Now)
 		return err
 	})
 	return result, err
