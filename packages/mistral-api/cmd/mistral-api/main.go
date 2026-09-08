@@ -19,6 +19,7 @@ import (
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/httphost"
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/runtimeid"
 	characterapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/application"
+	contentapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/application"
 	contentcomposition "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/composition"
 	contententrypoint "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/entrypoint"
 	craftingapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/crafting/application"
@@ -53,6 +54,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load content release: %v", err)
 	}
+	contentCatalog := contentapplication.NewCatalog(registry)
 
 	options := []httpapi.Option{}
 	if *databaseURL != "" {
@@ -74,12 +76,35 @@ func main() {
 				log.Fatal(err)
 			}
 		}
-		cancel()
-		defer func() { _ = db.Close() }()
 		gameplay, err := gameplaydb.New(db)
 		if err != nil {
+			cancel()
+			_ = db.Close()
 			log.Fatal(err)
 		}
+		if err := gameplay.ContentReleases.Archive(ctx, registry); err != nil {
+			cancel()
+			_ = db.Close()
+			log.Fatal(err)
+		}
+		archivedReleases, err := gameplay.ContentReleases.List(ctx)
+		if err != nil {
+			cancel()
+			_ = db.Close()
+			log.Fatal(err)
+		}
+		for _, archived := range archivedReleases {
+			if archived.Manifest.ReleaseID() == registry.Manifest.ReleaseID() {
+				continue
+			}
+			if err := contentCatalog.Add(archived); err != nil {
+				cancel()
+				_ = db.Close()
+				log.Fatal(err)
+			}
+		}
+		cancel()
+		defer func() { _ = db.Close() }()
 		registration := characterapplication.NewPersistedRegistrationService(
 			characterapplication.NewService(registry),
 			runtimeid.Generator{},
@@ -103,6 +128,9 @@ func main() {
 		)
 	}
 
+	if _, err := contentCatalog.Active(); err != nil {
+		log.Fatal(err)
+	}
 	api := httpapi.New(registry, options...)
 	listener, err := net.Listen("tcp", *listen)
 	if err != nil {

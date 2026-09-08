@@ -7,8 +7,8 @@ import (
 	"fmt"
 )
 
-const RequiredMigration = "000003_idempotency_bounds.up.sql"
-const RequiredMigrationChecksum = "8e84a46c95bbf1bbf168d409c24dd7b65c31492a72b97b2d5e46597414d6e4dd"
+const RequiredMigration = "000004_content_releases.up.sql"
+const RequiredMigrationChecksum = "040a32761865d1fc9cee4a301b944243c9114854ac8183360c1b22b0a4dcf8d2"
 
 var requiredTables = []string{
 	"schema_migrations",
@@ -18,6 +18,7 @@ var requiredTables = []string{
 	"dungeon_runs",
 	"idempotency_commands",
 	"character_ownerships",
+	"content_releases",
 }
 
 func (s *Store) Ready(ctx context.Context) error {

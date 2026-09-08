@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	characterpostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/infra/postgres"
+	contentpostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/infra/postgres"
 	dungeonpostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/dungeon/infra/postgres"
 	gatheringpostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/gathering/infra/postgres"
 	identitypostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/identity/infra/postgres"
@@ -13,14 +14,15 @@ import (
 )
 
 type Store struct {
-	DB          *sql.DB
-	Characters  *characterpostgres.Repository
-	Ownership   *identitypostgres.Repository
-	Inventories *inventorypostgres.Repository
-	Gathering   *gatheringpostgres.Repository
-	DungeonRuns *dungeonpostgres.Repository
-	Transactor  sharedpostgres.Transactor
-	Idempotency *sharedpostgres.IdempotencyLedger
+	DB              *sql.DB
+	Characters      *characterpostgres.Repository
+	Ownership       *identitypostgres.Repository
+	Inventories     *inventorypostgres.Repository
+	Gathering       *gatheringpostgres.Repository
+	DungeonRuns     *dungeonpostgres.Repository
+	ContentReleases *contentpostgres.ReleaseArchive
+	Transactor      sharedpostgres.Transactor
+	Idempotency     *sharedpostgres.IdempotencyLedger
 }
 
 func New(db *sql.DB) (*Store, error) {
@@ -47,14 +49,19 @@ func New(db *sql.DB) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	contentReleases, err := contentpostgres.NewReleaseArchive(db)
+	if err != nil {
+		return nil, err
+	}
 	return &Store{
-		DB:          db,
-		Characters:  characters,
-		Ownership:   ownership,
-		Inventories: inventories,
-		Gathering:   gathering,
-		DungeonRuns: dungeonRuns,
-		Transactor:  sharedpostgres.NewTransactor(db, nil),
-		Idempotency: sharedpostgres.NewIdempotencyLedger(db),
+		DB:              db,
+		Characters:      characters,
+		Ownership:       ownership,
+		Inventories:     inventories,
+		Gathering:       gathering,
+		DungeonRuns:     dungeonRuns,
+		ContentReleases: contentReleases,
+		Transactor:      sharedpostgres.NewTransactor(db, nil),
+		Idempotency:     sharedpostgres.NewIdempotencyLedger(db),
 	}, nil
 }
