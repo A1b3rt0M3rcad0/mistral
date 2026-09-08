@@ -80,8 +80,60 @@ func TestPersistedClaimReplaysWithoutDuplicatingInventory(t *testing.T) {
 		t.Fatalf("claimed cycles = %d, want 2", storedSession.Value.ClaimedCycles)
 	}
 
-	other := gatheringapplication.ClaimCommand{IdempotencyKey: "claim-1", SessionID: "different-session", CharacterID: "character-1", Now: command.Now}
+	other := gatheringapplication.ClaimCommand{IdempotencyKey: "claim-1", SessionID: "session-1", CharacterID: "different-character", Now: command.Now}
 	if _, err := service.Execute(context.Background(), other); !errors.Is(err, persistence.ErrIdempotencyKeyReuse) {
 		t.Fatalf("expected idempotency key reuse error, got %v", err)
+	}
+}
+
+func TestGatheringIdempotencyKeyIsScopedPerSession(t *testing.T) {
+	registry := content.NewRegistry()
+	registry.Manifest = content.Manifest{Name: "test", Version: "1", Hash: "abc"}
+	registry.Items["iron_ore"] = content.ItemDefinition{ID: "iron_ore", Name: "Iron Ore", Kind: content.ItemKindMaterial}
+	registry.Gathering["iron_mine"] = content.GatheringDefinition{ID: "iron_mine", Discipline: "mining", Name: "Iron Mine", IntervalSeconds: 60, Drops: []content.GatheringDrop{{ItemID: "iron_ore", Probability: 1, MinQuantity: 1, MaxQuantity: 1}}}
+	game := gatheringapplication.NewService(registry)
+	startedAt := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+
+	sessions := gatheringmemory.NewRepository()
+	for _, sessionID := range []string{"session-a", "session-b"} {
+		session, err := game.Start(sessionID, "character-1", "iron_mine", 7, startedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sessions.Create(context.Background(), session); err != nil {
+			t.Fatal(err)
+		}
+	}
+	playerInventory, err := inventory.New("character-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventories := inventorymemory.NewRepository()
+	if _, err := inventories.Create(context.Background(), playerInventory); err != nil {
+		t.Fatal(err)
+	}
+
+	service := gatheringapplication.NewPersistedClaimService(game, sessions, inventories, inlineTransactor{}, sharedmemory.NewIdempotencyLedger())
+	for _, sessionID := range []string{"session-a", "session-b"} {
+		result, err := service.Execute(context.Background(), gatheringapplication.ClaimCommand{
+			IdempotencyKey: "same-key",
+			SessionID:      sessionID,
+			CharacterID:    "character-1",
+			Now:            startedAt.Add(time.Minute),
+		})
+		if err != nil {
+			t.Fatalf("claim %s: %v", sessionID, err)
+		}
+		if result.Replayed || result.Resolution.ThroughCycle != 1 {
+			t.Fatalf("claim %s result = %#v", sessionID, result)
+		}
+	}
+
+	storedInventory, err := inventories.Get(context.Background(), "character-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := storedInventory.Value.Quantity("iron_ore"); got != 2 {
+		t.Fatalf("iron ore quantity = %d, want 2", got)
 	}
 }
