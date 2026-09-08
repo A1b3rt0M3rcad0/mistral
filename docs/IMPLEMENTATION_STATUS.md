@@ -12,6 +12,7 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - Content-addressed release identity (`version@sha256:<digest>`).
 - Craft-only invariant preventing monster/gathering drops of ready equipment or tools.
 - Data-driven decay definitions with reference validation and cycle rejection.
+- Public race-creation catalog derived from the active release and returned in deterministic id order together with `release_id`.
 
 ### Character
 
@@ -22,6 +23,7 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - Public character registration no longer accepts a client-selected internal id.
 - The API host generates opaque 128-bit character ids with `crypto/rand`.
 - Character-id generation happens only after the idempotency claim is acquired; replay returns the original stored id and does not call the generator again.
+- Authenticated subjects can rediscover their generated character ids through ownership-backed character listing.
 
 ### Identity / ownership boundary
 
@@ -30,10 +32,13 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - No gameplay payload is allowed to choose or override `subject_id`.
 - Core models the durable ownership fact `subject_id -> character_id`.
 - A character can have at most one owner; one subject may own multiple characters.
+- Ownership repositories support both `ByCharacter` authorization lookup and `BySubject` owned-character discovery.
+- PostgreSQL `BySubject` uses the existing `character_ownerships(subject_id)` index and returns deterministic character-id order.
 - Ownership authorization returns forbidden for missing or mismatched ownership instead of exposing ownership existence.
 - In-memory and PostgreSQL ownership repositories exist.
 - PostgreSQL ownership rows reference `characters(id)` and are deleted with the character.
 - Character-scoped HTTP reads and mutations execute the principal + ownership guard before reading or mutating authoritative state.
+- Character-list discovery derives its subject exclusively from the trusted principal; the client cannot request another subject's list.
 - The default `mistral-api` composition currently does not install a concrete `PrincipalResolver`, so protected routes fail closed with `401` until an authentication adapter is selected.
 
 ### Inventory
@@ -55,7 +60,8 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - Offline claim does not freeze perishability; expired batches can already transform by claim time.
 - Persisted claim command updates Gathering Session + Inventory in one transaction boundary.
 - Command replay returns the stored original result and does not materialize resources again.
-- Gathering idempotency keys are scoped per session, so unrelated sessions do not collide.
+- Gathering idempotency keys are scoped per session, so unrelated sessions can reuse the same external key without collision.
+- Tests explicitly distinguish same-session key reuse conflicts from legitimate cross-session key reuse.
 
 ### Crafting
 
@@ -101,11 +107,12 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - Tests proving stale writes are rejected instead of silently overwriting newer state.
 - `Transactor` application-facing port for atomic work spanning multiple repositories.
 - PostgreSQL `Transactor` using `database/sql`, including commit, rollback and nested-transaction reuse tests.
+- PostgreSQL runner supports both point queries and multi-row queries while preserving transaction-bound execution.
 - PostgreSQL JSONB aggregate store with relational identity and monotonic version columns.
 - PostgreSQL repository adapters for Character, Inventory, Gathering Session and Dungeon Run.
 - PostgreSQL driver selection remains outside Core and is registered by the API host.
 - `mistral-migrate` applies ordered SQL migrations under a PostgreSQL advisory transaction lock.
-- Live PostgreSQL 17 is part of backend CI and validates migration/repository behavior.
+- Live PostgreSQL 17 is part of backend CI and validates migration/repository behavior, including reverse ownership lookup.
 - Command idempotency ledger with `(scope, idempotency_key)` identity, request hashes, in-progress/completed states and stored replay responses.
 - In-memory and PostgreSQL ledger adapters.
 - Same key + different request hash within the same resource scope is rejected instead of silently reusing a command identity.
@@ -133,15 +140,21 @@ Current routes:
 GET  /healthz
 GET  /readyz
 GET  /api/v1/content/release
+GET  /api/v1/content/races
+GET  /api/v1/characters
 GET  /api/v1/characters/{characterID}
 GET  /api/v1/characters/{characterID}/inventory
 POST /api/v1/characters
 POST /api/v1/characters/{characterID}/crafts
 ```
 
+`GET /api/v1/content/races` is a public creation catalog tied to the active immutable content release. It exposes only race definitions required for creation and does not expose loot, dungeon or recipe tables.
+
+`GET /api/v1/characters` resolves the authenticated `subject_id`, looks up only that subject's ownership rows and then loads those authoritative character aggregates. This closes the discovery loop created by server-generated character ids without allowing arbitrary subject lookup.
+
 Character registration and crafting are server-authoritative and replay-safe. `POST /api/v1/characters` accepts only the race choice; `subject_id` comes from the authenticated principal and `character_id` is generated by the server. Crafting derives the character from the URL after ownership authorization and requires `Idempotency-Key`.
 
-The two character read routes are also ownership-protected and never read authoritative character/inventory state before authorization succeeds.
+The individual character and inventory read routes are ownership-protected and never read authoritative character/inventory state before authorization succeeds.
 
 ### Architecture enforcement
 
@@ -159,6 +172,7 @@ The integration/core tests now prove game flow, replay behavior, ownership and l
 authenticated subject boundary
 -> transactional Human character + Inventory + Ownership registration
 -> server-assigned character id
+-> ownership-backed character rediscovery
 -> Iron Mine session
 -> deterministic Iron Ore / Coal claim
 -> replay-safe persisted gathering claim
