@@ -64,9 +64,9 @@ elapsed = now - started_at
 encounters_due = floor(elapsed / encounter_interval)
 ```
 
-The deterministic engine then derives the encounter sequence from the run seed and the selected dungeon/tier definition.
+The deterministic dungeon engine derives the encounter sequence from the run seed and selected dungeon/tier definition. Gathering uses the same principle but derives RNG independently per cycle, so claiming one hundred cycles at once or in smaller batches produces the same aggregate result and cannot duplicate already claimed cycles.
 
-This bootstrap intentionally stops at deterministic encounter scheduling. Victory/defeat, damage, XP and loot materialization remain undefined until combat and progression contracts are specified.
+Loot materialization is also deterministic: a defeated encounter is mapped to its monster loot table using a seed derived from the pinned run seed and encounter ordinal. Combat outcome itself is intentionally not implemented as a formula yet; core exposes a `CombatResolver` port so combat rules can be defined without contaminating dungeon, loot or progression mechanics with temporary balance assumptions.
 
 ## Dungeon model
 
@@ -74,7 +74,9 @@ Solo and group dungeons use the same dungeon engine. Party size is an input; sep
 
 The MVP party target is 2–4 players. Group scaling belongs in dungeon content parameters.
 
-Boss keys are obtained from monster loot and make the tier boss available. Defeating the boss unlocks the next dungeon tier.
+Boss keys are obtained from monster loot and make the tier boss available. Defeating the boss unlocks the next dungeon tier only when that next tier exists in the pinned content release.
+
+The exact boss-key consumption rule is not yet defined by the product contract. The boss application service therefore receives a key-consumption policy rather than hard-coding consume-on-attempt, consume-on-victory or reusable-key behavior.
 
 ## Gathering and crafting
 
@@ -95,22 +97,26 @@ Crafting stations/NPC specializations:
 
 NPCs represent production stations; they must not create materials ex nihilo.
 
+Crafting is an atomic inventory operation: all recipe requirements are validated on a working copy, then consumed and the output is materialized. A failed craft cannot partially consume ingredients.
+
 ## Inventory and perishability
 
-Inventory must support batches/stacks with different expiry times. A single `item_id + quantity` aggregate is insufficient for perishable items.
+Inventory supports batches/stacks with different expiry times. A single `item_id + quantity` aggregate is insufficient for perishable items.
 
-Conceptually:
+Implemented stack contract:
 
 ```text
 InventoryStack
 - item_id
 - quantity
-- created_at
+- acquired_at
 - expires_at
 - metadata
 ```
 
-Perishable items transform rather than simply disappear (for example Fresh -> Spoiled), allowing spoiled outputs to feed other recipes later.
+Compatible stacks may merge, while different expiry or metadata batches remain separate. Consumption prioritizes the earliest-expiring compatible batch. Multi-item consumption is atomic.
+
+Perishable item transformation itself (for example Fresh -> Spoiled) remains future work because decay definitions are not yet present in the active content release.
 
 ## Homestead and mounts
 
@@ -150,6 +156,30 @@ presentation contains transport-facing contracts but no transport framework
 ```
 
 HTTP and worker hosts remain outside the core.
+
+## Current executable vertical slice
+
+The integration suite now executes the current release through:
+
+```text
+create Human character
+  -> start Iron Mine session
+  -> resolve/claim deterministic mining cycles
+  -> obtain Iron Ore + Coal
+  -> smelt 3 Iron Ingots
+  -> craft Iron Sword
+  -> start Abandoned Mine Tier I
+  -> materialize deterministic encounters
+  -> resolve defeated-monster loot
+  -> obtain Goblin King Key
+  -> challenge Goblin King through injected CombatResolver
+  -> materialize boss loot
+```
+
+Two deliberate content gaps are visible instead of being silently invented:
+
+1. `oak_handle` and a pre-dungeon source for `leather_strip` are not yet defined, although both are required by the Iron Sword recipe. The integration fixture seeds only these missing prerequisites.
+2. `Abandoned Mine` currently defines Tier I only. The progression engine and tests support unlocking Tier II when Tier II exists, but the active content release does not invent an unbalanced Tier II.
 
 ## MVP scope boundaries
 
