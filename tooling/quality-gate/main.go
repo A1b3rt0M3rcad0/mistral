@@ -58,9 +58,10 @@ func scan(root string) ([]violation, error) {
 			}
 			if strings.Contains(importPath, "/packages/mistral-api") || strings.Contains(importPath, "/packages/mistral-workers") || strings.Contains(importPath, "/packages/mistral-frontend") {
 				violations = append(violations, violation{normalized, importPath, "core cannot depend on host packages"})
+				continue
 			}
-			if strings.Contains(normalized, "/domain/") && isOutwardLayer(importPath) {
-				violations = append(violations, violation{normalized, importPath, "domain cannot depend on infra, composition, presentation or entrypoint"})
+			if reason := layerViolation(normalized, importPath); reason != "" {
+				violations = append(violations, violation{normalized, importPath, reason})
 			}
 		}
 		return nil
@@ -68,9 +69,35 @@ func scan(root string) ([]violation, error) {
 	return violations, err
 }
 
-func isOutwardLayer(importPath string) bool {
-	for _, marker := range []string{"/infra/", "/composition/", "/presentation/", "/entrypoint/"} {
-		if strings.Contains(importPath, marker) {
+func layerViolation(filePath, importPath string) string {
+	if !strings.Contains(importPath, "/packages/mistral-core/") {
+		return ""
+	}
+
+	switch {
+	case strings.Contains(filePath, "/domain/"):
+		if containsAny(importPath, "/application/", "/infra/", "/composition/", "/presentation/", "/entrypoint/") {
+			return "domain may depend only on inward domain/shared contracts, never application or outward layers"
+		}
+	case strings.Contains(filePath, "/application/"):
+		if containsAny(importPath, "/infra/", "/composition/", "/presentation/", "/entrypoint/") {
+			return "application cannot depend on infrastructure, composition, presentation or entrypoint"
+		}
+	case strings.Contains(filePath, "/presentation/"):
+		if containsAny(importPath, "/infra/", "/composition/", "/entrypoint/") {
+			return "presentation cannot depend on infrastructure, composition or entrypoint"
+		}
+	case strings.Contains(filePath, "/infra/"):
+		if containsAny(importPath, "/composition/", "/presentation/", "/entrypoint/") {
+			return "infrastructure cannot depend on composition, presentation or entrypoint"
+		}
+	}
+	return ""
+}
+
+func containsAny(value string, markers ...string) bool {
+	for _, marker := range markers {
+		if strings.Contains(value, marker) {
 			return true
 		}
 	}
