@@ -121,6 +121,45 @@ func TestCharacterQueriesRequireOwnershipAndReturnAuthoritativeState(t *testing.
 	}
 }
 
+func TestInventoryQueryProjectsDecayWithoutMutatingPersistence(t *testing.T) {
+	registry := content.NewRegistry()
+	registry.Decay["fresh_fish"] = content.DecayDefinition{ID: "fresh_fish", ExpiresAfterSeconds: 60, DecayIntoID: "spoiled_fish"}
+	inventories := inventorymemory.NewRepository()
+	playerInventory, err := inventory.New("hero-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acquiredAt := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	expiresAt := acquiredAt.Add(time.Minute)
+	if err := playerInventory.Add("fresh_fish", 2, acquiredAt, &expiresAt, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inventories.Create(context.Background(), playerInventory); err != nil {
+		t.Fatal(err)
+	}
+	server := New(registry,
+		WithPrincipalResolver(staticPrincipalResolver{principal: Principal{SubjectID: "subject-1"}}),
+		WithCharacterAuthorizer(staticCharacterAuthorizer{subjectID: "subject-1", characterID: "hero-1"}),
+		WithInventoryReader(inventories),
+	)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/characters/hero-1/inventory", nil)
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"item_id":"spoiled_fish"`) || strings.Contains(recorder.Body.String(), `"item_id":"fresh_fish"`) {
+		t.Fatalf("inventory read did not project decay: %s", recorder.Body.String())
+	}
+	stored, err := inventories.Get(context.Background(), "hero-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Value.Quantity("fresh_fish") != 2 || stored.Value.Quantity("spoiled_fish") != 0 {
+		t.Fatalf("GET mutated persisted inventory: %#v", stored.Value.Stacks)
+	}
+}
+
 func TestCharacterQueriesRejectNonOwnerBeforeReadingState(t *testing.T) {
 	server := New(content.NewRegistry(),
 		WithPrincipalResolver(staticPrincipalResolver{principal: Principal{SubjectID: "subject-2"}}),

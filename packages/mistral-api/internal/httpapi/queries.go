@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	character "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/domain"
+	decayapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/decay/application"
 	identityapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/identity/application"
 	identity "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/identity/domain"
 	inventory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/inventory/domain"
@@ -125,7 +127,12 @@ func (s *Server) getInventory(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "inventory query failed"})
 		return
 	}
-	writeJSON(w, http.StatusOK, record.Value)
+	resolved := record.Value.Clone()
+	if _, err := decayapplication.NewService(s.registry).Resolve(&resolved, time.Now().UTC()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "inventory projection failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, resolved)
 }
 
 func (s *Server) authorizeCharacterRead(w http.ResponseWriter, r *http.Request, characterID string) bool {
