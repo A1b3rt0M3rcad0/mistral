@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	ErrOwnershipNotFound      = errors.New("character ownership not found")
+	ErrOwnershipNotFound     = errors.New("character ownership not found")
 	ErrCharacterAlreadyOwned = errors.New("character already has an owner")
 	ErrForbidden             = errors.New("character access forbidden")
 )
