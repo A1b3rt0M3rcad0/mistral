@@ -82,7 +82,10 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "persistence": "ready"})
 }
 
-func (s *Server) contentRelease(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) contentRelease(w http.ResponseWriter, r *http.Request) {
+	if s.contentNotModified(w, r) {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"name":       s.registry.Manifest.Name,
 		"version":    s.registry.Manifest.Version,
