@@ -81,10 +81,11 @@ func (s PersistedBossService) Execute(ctx context.Context, command BossCommand) 
 		return BossCommandResult{}, err
 	}
 	requestHash := persistence.HashRequest(intent)
+	scope := bossChallengeScope + ":" + command.CharacterID
 	var result BossCommandResult
 
 	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
-		claim, err := s.ledger.Claim(txCtx, persistence.ClaimRequest{Scope: bossChallengeScope, Key: command.IdempotencyKey, RequestHash: requestHash, ClaimedAt: command.Now})
+		claim, err := s.ledger.Claim(txCtx, persistence.ClaimRequest{Scope: scope, Key: command.IdempotencyKey, RequestHash: requestHash, ClaimedAt: command.Now})
 		if err != nil {
 			return err
 		}
@@ -132,7 +133,7 @@ func (s PersistedBossService) Execute(ctx context.Context, command BossCommand) 
 		if err != nil {
 			return err
 		}
-		_, err = s.ledger.Complete(txCtx, bossChallengeScope, command.IdempotencyKey, requestHash, response, command.Now)
+		_, err = s.ledger.Complete(txCtx, scope, command.IdempotencyKey, requestHash, response, command.Now)
 		return err
 	})
 	return result, err
