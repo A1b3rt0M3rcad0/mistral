@@ -5,14 +5,18 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/database"
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/dbmigrate"
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/gameplaydb"
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/httpapi"
+	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/httphost"
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/runtimeid"
 	characterapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/application"
 	contentcomposition "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/composition"
@@ -27,6 +31,9 @@ func main() {
 	databaseURL := flag.String("database-url", os.Getenv("DATABASE_URL"), "PostgreSQL connection URL; persistence is disabled when empty")
 	migrate := flag.Bool("migrate", false, "apply pending SQL migrations before serving")
 	migrationRoot := flag.String("migrations", "./migrations", "path to SQL migrations")
+	readHeaderTimeout := flag.Duration("read-header-timeout", 5*time.Second, "maximum time to read HTTP request headers")
+	idleTimeout := flag.Duration("idle-timeout", 60*time.Second, "maximum keep-alive idle time")
+	shutdownTimeout := flag.Duration("shutdown-timeout", 10*time.Second, "graceful HTTP shutdown timeout")
 	flag.Parse()
 
 	contentService := contentcomposition.NewService(*contentRoot)
@@ -79,9 +86,22 @@ func main() {
 		)
 	}
 
-	server := httpapi.New(registry, options...)
-	fmt.Printf("mistral-api listening on %s with content %s@%s\n", *listen, registry.Manifest.Name, registry.Manifest.ReleaseID())
-	if err := http.ListenAndServe(*listen, server.Handler()); err != nil {
+	api := httpapi.New(registry, options...)
+	listener, err := net.Listen("tcp", *listen)
+	if err != nil {
+		log.Fatal(err)
+	}
+	httpServer := &http.Server{
+		Addr:              *listen,
+		Handler:           api.Handler(),
+		ReadHeaderTimeout: *readHeaderTimeout,
+		IdleTimeout:       *idleTimeout,
+	}
+
+	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	fmt.Printf("mistral-api listening on %s with content %s@%s\n", listener.Addr().String(), registry.Manifest.Name, registry.Manifest.ReleaseID())
+	if err := httphost.Run(runCtx, httpServer, listener, *shutdownTimeout); err != nil {
 		log.Fatal(err)
 	}
 }
