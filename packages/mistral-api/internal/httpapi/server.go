@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -10,9 +11,14 @@ import (
 
 type Option func(*Server)
 
+type ReadinessChecker interface {
+	Ready(context.Context) error
+}
+
 type Server struct {
 	registry            content.Registry
 	gameplay            *gameplaydb.Store
+	readiness           ReadinessChecker
 	principals          PrincipalResolver
 	characterAuthorizer CharacterAuthorizer
 	characterRegistrar  CharacterRegistrar
@@ -26,6 +32,7 @@ type Server struct {
 func WithGameplayStore(store *gameplaydb.Store) Option {
 	return func(server *Server) {
 		server.gameplay = store
+		server.readiness = store
 		if store != nil {
 			server.characterReader = store.Characters
 			server.inventoryReader = store.Inventories
@@ -68,7 +75,7 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "persistence": "disabled"})
 		return
 	}
-	if err := s.gameplay.DB.PingContext(r.Context()); err != nil {
+	if s.readiness == nil || s.readiness.Ready(r.Context()) != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable", "persistence": "unavailable"})
 		return
 	}
