@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const RequiredMigration = "000002_identity.up.sql"
+const RequiredMigration = "000003_idempotency_bounds.up.sql"
 
 var requiredTables = []string{
 	"schema_migrations",

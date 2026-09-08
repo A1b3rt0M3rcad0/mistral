@@ -49,9 +49,9 @@ func (s *Server) craft(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "crafting unavailable"})
 		return
 	}
-	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	if idempotencyKey == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Idempotency-Key header is required"})
+	idempotencyKey, err := requireIdempotencyKey(r)
+	if err != nil {
+		writeIdempotencyKeyError(w, err)
 		return
 	}
 
