@@ -48,6 +48,13 @@ func (t Transactor) WithinTransaction(ctx context.Context, fn func(context.Conte
 	return tx.Commit()
 }
 
+// Runner returns the database handle bound to ctx. When ctx was created by
+// Transactor, repository operations share that transaction; otherwise the
+// underlying *sql.DB is used.
+func Runner(ctx context.Context, db *sql.DB) DBTX {
+	return runner(ctx, db)
+}
+
 func runner(ctx context.Context, db *sql.DB) DBTX {
 	if tx, ok := ctx.Value(transactionKey{}).(*sql.Tx); ok {
 		return tx

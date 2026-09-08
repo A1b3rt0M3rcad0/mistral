@@ -7,6 +7,7 @@ import (
 	characterpostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/infra/postgres"
 	dungeonpostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/dungeon/infra/postgres"
 	gatheringpostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/gathering/infra/postgres"
+	identitypostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/identity/infra/postgres"
 	inventorypostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/inventory/infra/postgres"
 	sharedpostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/shared/infra/postgres"
 )
@@ -14,6 +15,7 @@ import (
 type Store struct {
 	DB          *sql.DB
 	Characters  *characterpostgres.Repository
+	Ownership   *identitypostgres.Repository
 	Inventories *inventorypostgres.Repository
 	Gathering   *gatheringpostgres.Repository
 	DungeonRuns *dungeonpostgres.Repository
@@ -26,6 +28,10 @@ func New(db *sql.DB) (*Store, error) {
 		return nil, errors.New("database is required")
 	}
 	characters, err := characterpostgres.NewRepository(db)
+	if err != nil {
+		return nil, err
+	}
+	ownership, err := identitypostgres.NewRepository(db)
 	if err != nil {
 		return nil, err
 	}
@@ -44,6 +50,7 @@ func New(db *sql.DB) (*Store, error) {
 	return &Store{
 		DB:          db,
 		Characters:  characters,
+		Ownership:   ownership,
 		Inventories: inventories,
 		Gathering:   gathering,
 		DungeonRuns: dungeonRuns,
