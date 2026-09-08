@@ -19,16 +19,22 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - Level initialized at 1.
 - Explicit per-dungeon unlocked-tier progression.
 - Idempotent progression advancement.
+- Public character registration no longer accepts a client-selected internal id.
+- The API host generates opaque 128-bit character ids with `crypto/rand`.
+- Character-id generation happens only after the idempotency claim is acquired; replay returns the original stored id and does not call the generator again.
 
 ### Identity / ownership boundary
 
-- Authentication mechanism remains deliberately unspecified.
-- Core now models only the durable ownership fact: `subject_id -> character_id`.
+- Authentication mechanism/provider remains deliberately unspecified.
+- The HTTP host exposes a `PrincipalResolver` port that resolves a request into a `subject_id`.
+- No gameplay payload is allowed to choose or override `subject_id`.
+- Core models the durable ownership fact `subject_id -> character_id`.
 - A character can have at most one owner; one subject may own multiple characters.
 - Ownership authorization returns forbidden for missing or mismatched ownership instead of exposing ownership existence.
 - In-memory and PostgreSQL ownership repositories exist.
 - PostgreSQL ownership rows reference `characters(id)` and are deleted with the character.
-- Host gameplay composition includes the ownership repository.
+- Character-scoped HTTP reads and mutations execute the principal + ownership guard before reading or mutating authoritative state.
+- The default `mistral-api` composition currently does not install a concrete `PrincipalResolver`, so protected routes fail closed with `401` until an authentication adapter is selected.
 
 ### Inventory
 
@@ -49,6 +55,7 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - Offline claim does not freeze perishability; expired batches can already transform by claim time.
 - Persisted claim command updates Gathering Session + Inventory in one transaction boundary.
 - Command replay returns the stored original result and does not materialize resources again.
+- Gathering idempotency keys are scoped per session, so unrelated sessions do not collide.
 
 ### Crafting
 
@@ -59,6 +66,7 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - Atomic ingredient consumption/output materialization in the pure use case.
 - Persisted crafting command with command-level idempotency and optimistic inventory versioning.
 - Replayed craft commands return the stored result without consuming ingredients or creating output again.
+- Craft idempotency keys are scoped per character.
 
 ### Dungeon
 
@@ -74,6 +82,8 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - Boss progression unlocks a next tier only if that tier is present in the content release.
 - Persisted boss command spans Character + Inventory + idempotency ledger in one transaction boundary.
 - Replayed boss commands do not rerun combat, duplicate loot or advance progression again.
+- Boss idempotency keys are scoped per character.
+- Dungeon reward/boss HTTP mutation endpoints remain intentionally unexposed until authoritative combat/outcome rules are complete.
 
 ### Combat boundary
 
@@ -98,7 +108,9 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - Live PostgreSQL 17 is part of backend CI and validates migration/repository behavior.
 - Command idempotency ledger with `(scope, idempotency_key)` identity, request hashes, in-progress/completed states and stored replay responses.
 - In-memory and PostgreSQL ledger adapters.
-- Same key + different request hash is rejected instead of silently reusing a command identity.
+- Same key + different request hash within the same resource scope is rejected instead of silently reusing a command identity.
+- Resource-scoped idempotency avoids global collisions between unrelated players/sessions.
+- Atomic persisted character registration creates Character + Inventory + Ownership + idempotency result in one transaction.
 - `/readyz` reports database readiness when persistence is configured.
 
 The intended delivery semantic is not “exactly once”. The design supports replay-safe command processing under an at-least-once transport model when the idempotency ledger mutation and gameplay side effects execute inside the same database transaction.
@@ -113,6 +125,24 @@ idempotency ledger  -> deduplicates retried commands and replays the original re
 
 Aggregate state is deliberately stored as JSONB in the first PostgreSQL schema while identity, versions, ownership, idempotency keys and transaction semantics remain relational. This keeps the initial persistence schema tolerant of domain evolution without weakening concurrency guarantees.
 
+### HTTP host surface
+
+Current routes:
+
+```text
+GET  /healthz
+GET  /readyz
+GET  /api/v1/content/release
+GET  /api/v1/characters/{characterID}
+GET  /api/v1/characters/{characterID}/inventory
+POST /api/v1/characters
+POST /api/v1/characters/{characterID}/crafts
+```
+
+Character registration and crafting are server-authoritative and replay-safe. `POST /api/v1/characters` accepts only the race choice; `subject_id` comes from the authenticated principal and `character_id` is generated by the server. Crafting derives the character from the URL after ownership authorization and requires `Idempotency-Key`.
+
+The two character read routes are also ownership-protected and never read authoritative character/inventory state before authorization succeeds.
+
 ### Architecture enforcement
 
 - Core cannot depend on API, Workers or Frontend hosts.
@@ -123,10 +153,12 @@ Aggregate state is deliberately stored as JSONB in the first PostgreSQL schema w
 
 ## Proven executable path
 
-The integration/core tests now prove game flow, replay behavior and live PostgreSQL persistence:
+The integration/core tests now prove game flow, replay behavior, ownership and live PostgreSQL persistence:
 
 ```text
-Human character
+authenticated subject boundary
+-> transactional Human character + Inventory + Ownership registration
+-> server-assigned character id
 -> Iron Mine session
 -> deterministic Iron Ore / Coal claim
 -> replay-safe persisted gathering claim
@@ -165,20 +197,25 @@ The current contract says a key makes the boss available but does not specify wh
 
 ### Authentication
 
-Ownership persistence is now defined, but authentication is intentionally still open. The host still needs a concrete mechanism that resolves an external request to an authenticated `subject_id` (for example session/JWT/OIDC/etc.). Core should not choose that mechanism.
+The principal boundary and ownership authorization are implemented, but a concrete authentication adapter is intentionally still open. The host must eventually resolve an external request to a trusted `subject_id` through a selected mechanism (session/JWT/OIDC/upstream identity/etc.). Core must remain independent of that choice.
+
+### Gathering session concurrency
+
+The core can model independent gathering sessions, but the product contract does not yet define whether a character may have multiple simultaneous active gathering activities. The API therefore does not expose a public “start gathering” mutation yet; exposing it without a concurrency rule would allow the HTTP surface to invent an economy rule.
 
 ## Remaining engineering work
 
-- Add the API authentication/principal resolver port and ownership guard around mutable character-scoped routes.
-- Add atomic persisted character registration so Character + Inventory + Ownership are created together.
-- Expose server-authoritative gathering/crafting/dungeon commands only behind authenticated ownership checks and idempotency keys.
-- Define the production combat contract before exposing real boss combat.
+- Select and implement a concrete authentication adapter at the API-host boundary; protected routes already fail closed without it.
+- Define the active-gathering concurrency/session policy before exposing gathering-session creation.
+- Add the authenticated gathering-claim HTTP command once session creation/lifecycle is authoritative.
+- Add an authoritative persisted dungeon encounter outcome/checkpoint before exposing encounter reward materialization over HTTP.
+- Define the production combat contract and boss-key consumption rule before exposing real boss combat.
 - Add live Tier II content only after difficulty/reward rules are specified.
 - Add concrete perishable content when the actual food/farming/fishing balance is defined; current active release contains decay capability but does not fabricate balance data.
 
 ## Next engineering slice
 
-1. Add the host authentication principal boundary without selecting a provider.
-2. Implement persisted character registration with Character + Inventory + Ownership in one transaction.
-3. Put mutable HTTP commands behind principal + ownership authorization.
+1. Keep the current protected HTTP surface fail-closed and choose the authentication adapter separately from Core.
+2. Define gathering session exclusivity/concurrency, then expose start + claim as one coherent server-authoritative flow.
+3. Introduce a persisted authoritative dungeon encounter outcome/checkpoint before any reward HTTP endpoint.
 4. Then continue with combat/equipment and Tier II once their game rules are defined.
