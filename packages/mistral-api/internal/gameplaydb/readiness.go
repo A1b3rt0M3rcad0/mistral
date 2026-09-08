@@ -7,8 +7,8 @@ import (
 	"fmt"
 )
 
-const RequiredMigration = "000004_content_releases.up.sql"
-const RequiredMigrationChecksum = "040a32761865d1fc9cee4a301b944243c9114854ac8183360c1b22b0a4dcf8d2"
+const RequiredMigration = "000005_content_release_schema_version.up.sql"
+const RequiredMigrationChecksum = "acbccbf1b2937c0f628580d1f156d19fae48b5bc3af06a2c3600a2ec6c349281"
 
 var requiredTables = []string{
 	"schema_migrations",

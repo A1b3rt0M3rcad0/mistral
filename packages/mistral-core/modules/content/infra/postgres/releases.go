@@ -13,6 +13,8 @@ import (
 	sharedpostgres "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/shared/infra/postgres"
 )
 
+const releasePayloadSchemaV1 int16 = 1
+
 type ReleaseArchive struct {
 	db *sql.DB
 }
@@ -48,10 +50,10 @@ func (r *ReleaseArchive) Archive(ctx context.Context, registry content.Registry)
 	}
 	runner := sharedpostgres.Runner(ctx, r.db)
 	if _, err := runner.ExecContext(ctx, `
-		INSERT INTO content_releases (release_id, name, version, content_hash, payload)
-		VALUES ($1, $2, $3, $4, $5::jsonb)
+		INSERT INTO content_releases (release_id, name, version, content_hash, payload_schema_version, payload)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb)
 		ON CONFLICT (release_id) DO NOTHING
-	`, registry.Manifest.ReleaseID(), registry.Manifest.Name, registry.Manifest.Version, registry.Manifest.Hash, payload); err != nil {
+	`, registry.Manifest.ReleaseID(), registry.Manifest.Name, registry.Manifest.Version, registry.Manifest.Hash, releasePayloadSchemaV1, payload); err != nil {
 		return fmt.Errorf("archive content release %s: %w", registry.Manifest.ReleaseID(), err)
 	}
 
@@ -70,7 +72,7 @@ func (r *ReleaseArchive) List(ctx context.Context) ([]content.Registry, error) {
 		return nil, errors.New("content release archive database is required")
 	}
 	rows, err := sharedpostgres.Runner(ctx, r.db).QueryContext(ctx, `
-		SELECT name, version, content_hash, payload
+		SELECT payload_schema_version, name, version, content_hash, payload
 		FROM content_releases
 		ORDER BY archived_at, release_id
 	`)
@@ -95,7 +97,7 @@ func (r *ReleaseArchive) List(ctx context.Context) ([]content.Registry, error) {
 
 func (r *ReleaseArchive) load(ctx context.Context, runner sharedpostgres.DBTX, releaseID string) (content.Registry, error) {
 	row := runner.QueryRowContext(ctx, `
-		SELECT name, version, content_hash, payload
+		SELECT payload_schema_version, name, version, content_hash, payload
 		FROM content_releases
 		WHERE release_id = $1
 	`, releaseID)
@@ -111,12 +113,16 @@ type releaseScanner interface {
 }
 
 func scanRelease(scanner releaseScanner) (content.Registry, error) {
+	var schemaVersion int16
 	var name string
 	var version string
 	var hash string
 	var payload []byte
-	if err := scanner.Scan(&name, &version, &hash, &payload); err != nil {
+	if err := scanner.Scan(&schemaVersion, &name, &version, &hash, &payload); err != nil {
 		return content.Registry{}, err
+	}
+	if schemaVersion != releasePayloadSchemaV1 {
+		return content.Registry{}, fmt.Errorf("%w: unsupported content release payload schema version %d", contentapplication.ErrReleaseIntegrity, schemaVersion)
 	}
 	var stored releasePayload
 	if err := json.Unmarshal(payload, &stored); err != nil {

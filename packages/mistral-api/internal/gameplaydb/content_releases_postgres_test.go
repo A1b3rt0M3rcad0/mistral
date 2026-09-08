@@ -102,6 +102,13 @@ func TestPostgresContentReleaseArchiveSurvivesRepositoryRecreation(t *testing.T)
 	if resolvedV1.Manifest.Hash != v1.Manifest.Hash {
 		t.Fatalf("historical content hash = %q, want %q", resolvedV1.Manifest.Hash, v1.Manifest.Hash)
 	}
+
+	if _, err := reopened.ExecContext(ctx, `UPDATE content_releases SET payload_schema_version = 2 WHERE release_id = $1`, v1.Manifest.ReleaseID()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restartedStore.ContentReleases.List(ctx); !errors.Is(err, contentapplication.ErrReleaseIntegrity) {
+		t.Fatalf("unsupported archived payload schema should fail closed, got %v", err)
+	}
 }
 
 func minimalContentRelease(version, hash, raceName string) content.Registry {
