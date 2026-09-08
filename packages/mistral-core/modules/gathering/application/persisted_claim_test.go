@@ -17,7 +17,9 @@ import (
 
 type inlineTransactor struct{}
 
-func (inlineTransactor) WithinTransaction(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }
+func (inlineTransactor) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
 
 func TestPersistedClaimReplaysWithoutDuplicatingInventory(t *testing.T) {
 	registry := content.NewRegistry()
