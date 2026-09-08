@@ -20,4 +20,4 @@ func NewRepository(db *sql.DB) (*Repository, error) {
 	return &Repository{JSONStore: store}, nil
 }
 
-var _ application.Repository = (*Repository)(nil)
+var _ application.RunRepository = (*Repository)(nil)
