@@ -26,9 +26,14 @@ import (
 )
 
 func main() {
+	poolDefaults := database.DefaultPoolConfig()
 	contentRoot := flag.String("content", "./content", "path to game content root")
 	listen := flag.String("listen", ":8080", "HTTP listen address")
 	databaseURL := flag.String("database-url", os.Getenv("DATABASE_URL"), "PostgreSQL connection URL; persistence is disabled when empty")
+	databaseMaxOpenConns := flag.Int("database-max-open-conns", poolDefaults.MaxOpenConns, "maximum open PostgreSQL connections")
+	databaseMaxIdleConns := flag.Int("database-max-idle-conns", poolDefaults.MaxIdleConns, "maximum idle PostgreSQL connections")
+	databaseConnMaxLifetime := flag.Duration("database-conn-max-lifetime", poolDefaults.ConnMaxLifetime, "maximum PostgreSQL connection lifetime")
+	databaseConnMaxIdleTime := flag.Duration("database-conn-max-idle-time", poolDefaults.ConnMaxIdleTime, "maximum PostgreSQL connection idle time")
 	migrate := flag.Bool("migrate", false, "apply pending SQL migrations before serving")
 	migrationRoot := flag.String("migrations", "./migrations", "path to SQL migrations")
 	readHeaderTimeout := flag.Duration("read-header-timeout", 5*time.Second, "maximum time to read HTTP request headers")
@@ -52,7 +57,12 @@ func main() {
 	options := []httpapi.Option{}
 	if *databaseURL != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		db, err := database.OpenPostgres(ctx, *databaseURL)
+		db, err := database.OpenPostgresWithPool(ctx, *databaseURL, database.PoolConfig{
+			MaxOpenConns:    *databaseMaxOpenConns,
+			MaxIdleConns:    *databaseMaxIdleConns,
+			ConnMaxLifetime: *databaseConnMaxLifetime,
+			ConnMaxIdleTime: *databaseConnMaxIdleTime,
+		})
 		if err != nil {
 			cancel()
 			log.Fatal(err)
