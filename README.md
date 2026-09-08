@@ -1,51 +1,51 @@
 # Mistral
 
-Mistral is a browser-based idle MMORPG focused on persistent progression through gathering, crafting, combat, scalable dungeons and cooperative play.
+Mistral is a browser-based IDLE MMORPG built around persistent progression through gathering, crafting, combat, scalable dungeons and cooperative play.
 
-The project is intentionally built as a server-authoritative modular monolith. Game rules live in typed Go domain engines; mutable game content lives in versioned JSON contracts that are validated before use.
+The project is server-authoritative and Data-Driven: game engines live in code while mutable game content is declared through versioned, strictly validated contracts.
 
-## Bootstrap scope
+## Current bootstrap
 
-This repository currently proves the two highest-risk architectural decisions from the MVP proposal:
-
-1. Versioned, typed and cross-validated Data-Driven content.
-2. Deterministic IDLE dungeon scheduling from immutable run input (`started_at`, `seed`, character snapshot, dungeon/tier and content release).
-
-Combat formulas, persistence, authentication and the complete economy are deliberately not invented yet because the product proposal does not define their contracts sufficiently.
-
-## Repository layout
+The repository is a Go modular monolith with explicit host boundaries:
 
 ```text
-packages/
-  mistral-core/       Game domain and application modules
-  mistral-api/        HTTP composition root
-  mistral-workers/    Async composition root (reserved; no permanent player loops)
-  mistral-frontend/   Browser client
-content/               Versioned game content
- tooling/
-  content-validator/  Content build validation
-  quality-gate/       Architecture dependency enforcement
+mistral-frontend -> mistral-api -> mistral-core <- mistral-workers
+content -------------------------> typed content loader/core
 ```
 
-## Run
+Implemented foundations include:
+
+- content-addressed Game Content Releases (`version@sha256:...`);
+- typed/validated races, items, recipes, loot tables, monsters, gathering areas and dungeons;
+- craft-only invariant for equipment/tools;
+- deterministic IDLE dungeon encounter scheduling;
+- deterministic, claim-idempotent gathering;
+- batch-aware inventory with per-stack expiry metadata;
+- atomic multi-item consumption and crafting;
+- deterministic monster/boss loot materialization;
+- boss-gated dungeon progression;
+- a `CombatResolver` port with no invented production combat formula;
+- architecture quality gate and GitHub Actions CI.
+
+The integration suite executes the current content release through character creation, Iron Mine gathering, smelting, Iron Sword crafting, Abandoned Mine encounters, boss-key loot and a Goblin King challenge using an explicit test combat resolver.
+
+## Known content gaps
+
+The active content release intentionally exposes rather than hides incomplete game design:
+
+- `oak_handle` and a pre-dungeon acquisition path for `leather_strip` are not yet defined even though the Iron Sword recipe requires them;
+- `Abandoned Mine` currently defines Tier I only, so no unbalanced Tier II content is fabricated;
+- combat equations and the boss-key consumption rule remain product decisions behind explicit contracts.
+
+See [`docs/MVP.md`](docs/MVP.md) for the technical product contract.
+
+## Validation
 
 ```bash
 go test ./...
+go vet ./...
 go run ./tooling/content-validator -content ./content
 go run ./tooling/quality-gate -root .
-go run ./packages/mistral-api/cmd/mistral-api -content ./content
 ```
 
-The API exposes:
-
-- `GET /healthz`
-- `GET /api/v1/content/release`
-
-## Architectural invariants
-
-- The browser is untrusted.
-- `mistral-core` cannot depend on API, workers or frontend.
-- Domain packages cannot import infrastructure, composition or presentation packages.
-- Monster loot cannot directly contain equipment or tools.
-- A dungeon run is pinned to one content release.
-- IDLE progression is derived from time and immutable state; it is not implemented as one sleeping loop per player.
+Frontend validation is enforced in CI with Node 22 and the TypeScript/Vite production build.
