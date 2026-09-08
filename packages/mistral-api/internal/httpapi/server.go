@@ -17,12 +17,18 @@ type Server struct {
 	characterAuthorizer CharacterAuthorizer
 	characterRegistrar  CharacterRegistrar
 	characterCrafter    CharacterCrafter
+	characterReader     CharacterReader
+	inventoryReader     InventoryReader
 	mux                 *http.ServeMux
 }
 
 func WithGameplayStore(store *gameplaydb.Store) Option {
 	return func(server *Server) {
 		server.gameplay = store
+		if store != nil {
+			server.characterReader = store.Characters
+			server.inventoryReader = store.Inventories
+		}
 	}
 }
 
@@ -43,6 +49,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.health)
 	s.mux.HandleFunc("GET /readyz", s.ready)
 	s.mux.HandleFunc("GET /api/v1/content/release", s.contentRelease)
+	s.mux.HandleFunc("GET /api/v1/characters/{characterID}", s.getCharacter)
+	s.mux.HandleFunc("GET /api/v1/characters/{characterID}/inventory", s.getInventory)
 	s.mux.HandleFunc("POST /api/v1/characters", s.createCharacter)
 	s.mux.HandleFunc("POST /api/v1/characters/{characterID}/crafts", s.craft)
 }
