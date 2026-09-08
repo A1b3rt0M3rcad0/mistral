@@ -11,9 +11,11 @@ import (
 type Option func(*Server)
 
 type Server struct {
-	registry content.Registry
-	gameplay *gameplaydb.Store
-	mux      *http.ServeMux
+	registry            content.Registry
+	gameplay            *gameplaydb.Store
+	principals          PrincipalResolver
+	characterAuthorizer CharacterAuthorizer
+	mux                 *http.ServeMux
 }
 
 func WithGameplayStore(store *gameplaydb.Store) Option {
