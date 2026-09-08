@@ -8,6 +8,7 @@ import (
 	character "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/domain"
 	combat "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/combat/application"
 	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
+	decay "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/decay/domain"
 	dungeon "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/dungeon/domain"
 	inventory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/inventory/domain"
 	loot "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/loot/domain"
@@ -31,10 +32,11 @@ type BossService struct {
 	combat    combat.Resolver
 	keyPolicy BossKeyPolicy
 	loot      loot.Engine
+	decay     decay.Engine
 }
 
 func NewBossService(registry content.Registry, resolver combat.Resolver, keyPolicy BossKeyPolicy) BossService {
-	return BossService{registry: registry, combat: resolver, keyPolicy: keyPolicy, loot: loot.NewEngine()}
+	return BossService{registry: registry, combat: resolver, keyPolicy: keyPolicy, loot: loot.NewEngine(), decay: decay.NewEngine()}
 }
 
 func (s BossService) Challenge(playerCharacter *character.Character, playerInventory *inventory.Inventory, dungeonID string, tier int, snapshot dungeon.CharacterSnapshot, seed int64, resolvedAt time.Time) (BossResult, error) {
@@ -54,7 +56,11 @@ func (s BossService) Challenge(playerCharacter *character.Character, playerInven
 	if err != nil {
 		return BossResult{}, err
 	}
-	if playerInventory.Quantity(definition.BossKeyItemID) < 1 {
+	workingInventory, _, err := s.decay.Resolve(playerInventory.Clone(), s.registry.Decay, resolvedAt)
+	if err != nil {
+		return BossResult{}, err
+	}
+	if workingInventory.Quantity(definition.BossKeyItemID) < 1 {
 		return BossResult{}, fmt.Errorf("boss key %s is required", definition.BossKeyItemID)
 	}
 	boss, ok := s.registry.Monsters[definition.BossID]
@@ -76,7 +82,7 @@ func (s BossService) Challenge(playerCharacter *character.Character, playerInven
 		return BossResult{}, err
 	}
 
-	workingInventory, err := s.keyPolicy.Apply(playerInventory.Clone(), definition.BossKeyItemID, outcome.Victory)
+	workingInventory, err = s.keyPolicy.Apply(workingInventory, definition.BossKeyItemID, outcome.Victory)
 	if err != nil {
 		return BossResult{}, err
 	}
@@ -91,7 +97,11 @@ func (s BossService) Challenge(playerCharacter *character.Character, playerInven
 		return BossResult{}, err
 	}
 	for _, reward := range rewards {
-		if err := workingInventory.Add(reward.ItemID, reward.Quantity, resolvedAt, nil, map[string]string{
+		expiresAt, err := decay.ExpirationFor(s.registry.Decay, reward.ItemID, resolvedAt)
+		if err != nil {
+			return BossResult{}, err
+		}
+		if err := workingInventory.Add(reward.ItemID, reward.Quantity, resolvedAt, expiresAt, map[string]string{
 			"source":     "boss_loot",
 			"dungeon_id": dungeonID,
 			"boss_id":    boss.ID,

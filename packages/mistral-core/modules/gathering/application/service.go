@@ -6,6 +6,7 @@ import (
 	"time"
 
 	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
+	decay "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/decay/domain"
 	gathering "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/gathering/domain"
 	inventory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/inventory/domain"
 )
@@ -13,10 +14,11 @@ import (
 type Service struct {
 	registry content.Registry
 	engine   gathering.Engine
+	decay    decay.Engine
 }
 
 func NewService(registry content.Registry) Service {
-	return Service{registry: registry, engine: gathering.NewEngine()}
+	return Service{registry: registry, engine: gathering.NewEngine(), decay: decay.NewEngine()}
 }
 
 func (s Service) Start(sessionID, characterID, gatheringID string, seed int64, startedAt time.Time) (gathering.Session, error) {
@@ -60,13 +62,21 @@ func (s Service) Claim(session *gathering.Session, playerInventory *inventory.In
 	}
 
 	working := playerInventory.Clone()
-	for _, reward := range resolution.Rewards {
+	for _, reward := range resolution.Batches {
 		if _, ok := s.registry.Items[reward.ItemID]; !ok {
 			return gathering.Resolution{}, fmt.Errorf("gathering reward references unknown item %s", reward.ItemID)
 		}
-		if err := working.Add(reward.ItemID, reward.Quantity, now, nil, map[string]string{"source": "gathering", "activity_id": session.GatheringID}); err != nil {
+		expiresAt, err := decay.ExpirationFor(s.registry.Decay, reward.ItemID, reward.AcquiredAt)
+		if err != nil {
 			return gathering.Resolution{}, err
 		}
+		if err := working.Add(reward.ItemID, reward.Quantity, reward.AcquiredAt, expiresAt, map[string]string{"source": "gathering", "activity_id": session.GatheringID}); err != nil {
+			return gathering.Resolution{}, err
+		}
+	}
+	working, _, err = s.decay.Resolve(working, s.registry.Decay, now)
+	if err != nil {
+		return gathering.Resolution{}, err
 	}
 
 	*playerInventory = working

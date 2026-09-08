@@ -17,10 +17,18 @@ type Reward struct {
 	Quantity int    `json:"quantity"`
 }
 
+type RewardBatch struct {
+	Cycle      int       `json:"cycle"`
+	AcquiredAt time.Time `json:"acquired_at"`
+	ItemID     string    `json:"item_id"`
+	Quantity   int       `json:"quantity"`
+}
+
 type Resolution struct {
-	SessionID    string    `json:"session_id"`
-	ResolvedAt   time.Time `json:"resolved_at"`
-	FromCycle    int       `json:"from_cycle"`
-	ThroughCycle int       `json:"through_cycle"`
-	Rewards      []Reward  `json:"rewards"`
+	SessionID    string        `json:"session_id"`
+	ResolvedAt   time.Time     `json:"resolved_at"`
+	FromCycle    int           `json:"from_cycle"`
+	ThroughCycle int           `json:"through_cycle"`
+	Rewards      []Reward      `json:"rewards"`
+	Batches      []RewardBatch `json:"batches"`
 }

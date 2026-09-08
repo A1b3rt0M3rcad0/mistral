@@ -69,6 +69,7 @@ func (s *Server) contentRelease(w http.ResponseWriter, _ *http.Request) {
 		"dungeons":   len(s.registry.Dungeons),
 		"recipes":    len(s.registry.Recipes),
 		"gathering":  len(s.registry.Gathering),
+		"decay":      len(s.registry.Decay),
 	})
 }
 

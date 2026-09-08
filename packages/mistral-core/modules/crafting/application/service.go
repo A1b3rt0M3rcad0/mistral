@@ -6,6 +6,7 @@ import (
 	"time"
 
 	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
+	decay "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/decay/domain"
 	inventory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/inventory/domain"
 )
 
@@ -20,10 +21,11 @@ type Result struct {
 
 type Service struct {
 	registry content.Registry
+	decay    decay.Engine
 }
 
 func NewService(registry content.Registry) Service {
-	return Service{registry: registry}
+	return Service{registry: registry, decay: decay.NewEngine()}
 }
 
 func (s Service) Craft(playerInventory *inventory.Inventory, recipeID, station string, crafts int, craftedAt time.Time) (Result, error) {
@@ -56,12 +58,19 @@ func (s Service) Craft(playerInventory *inventory.Inventory, recipeID, station s
 		requirements[input.ItemID] += input.Quantity * crafts
 	}
 
-	working := playerInventory.Clone()
+	working, _, err := s.decay.Resolve(playerInventory.Clone(), s.registry.Decay, craftedAt)
+	if err != nil {
+		return Result{}, err
+	}
 	if err := working.ConsumeMany(requirements); err != nil {
 		return Result{}, err
 	}
 	produced := recipe.OutputQty * crafts
-	if err := working.Add(recipe.OutputID, produced, craftedAt, nil, map[string]string{"source": "crafting", "recipe_id": recipe.ID}); err != nil {
+	expiresAt, err := decay.ExpirationFor(s.registry.Decay, recipe.OutputID, craftedAt)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := working.Add(recipe.OutputID, produced, craftedAt, expiresAt, map[string]string{"source": "crafting", "recipe_id": recipe.ID}); err != nil {
 		return Result{}, err
 	}
 	*playerInventory = working

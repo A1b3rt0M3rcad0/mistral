@@ -42,12 +42,15 @@ func (Engine) Resolve(session Session, definition content.GatheringDefinition, n
 			ResolvedAt:   now,
 			ThroughCycle: session.ClaimedCycles,
 			Rewards:      []Reward{},
+			Batches:      []RewardBatch{},
 		}, nil
 	}
 
 	rewards := map[string]int{}
+	batches := []RewardBatch{}
 	for ordinal := session.ClaimedCycles + 1; ordinal <= totalCycles; ordinal++ {
 		rng := rand.New(rand.NewSource(session.Seed + int64(ordinal)*7919)) // #nosec G404 -- deterministic gameplay RNG is intentional.
+		acquiredAt := session.StartedAt.Add(time.Duration(ordinal) * interval)
 		for _, drop := range definition.Drops {
 			if drop.Probability <= 0 || drop.Probability > 1 {
 				return Resolution{}, fmt.Errorf("invalid drop probability %.4f for item %s", drop.Probability, drop.ItemID)
@@ -63,6 +66,7 @@ func (Engine) Resolve(session Session, definition content.GatheringDefinition, n
 				quantity += rng.Intn(drop.MaxQuantity - drop.MinQuantity + 1)
 			}
 			rewards[drop.ItemID] += quantity
+			batches = append(batches, RewardBatch{Cycle: ordinal, AcquiredAt: acquiredAt, ItemID: drop.ItemID, Quantity: quantity})
 		}
 	}
 
@@ -82,5 +86,6 @@ func (Engine) Resolve(session Session, definition content.GatheringDefinition, n
 		FromCycle:    session.ClaimedCycles + 1,
 		ThroughCycle: totalCycles,
 		Rewards:      items,
+		Batches:      batches,
 	}, nil
 }

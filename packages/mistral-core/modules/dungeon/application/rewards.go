@@ -7,6 +7,7 @@ import (
 	"time"
 
 	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
+	decay "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/decay/domain"
 	dungeon "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/dungeon/domain"
 	inventory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/inventory/domain"
 	loot "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/loot/domain"
@@ -15,10 +16,11 @@ import (
 type RewardService struct {
 	registry content.Registry
 	loot     loot.Engine
+	decay    decay.Engine
 }
 
 func NewRewardService(registry content.Registry) RewardService {
-	return RewardService{registry: registry, loot: loot.NewEngine()}
+	return RewardService{registry: registry, loot: loot.NewEngine(), decay: decay.NewEngine()}
 }
 
 func (s RewardService) MaterializeDefeatedEncounter(playerInventory *inventory.Inventory, run dungeon.Run, encounter dungeon.Encounter, awardedAt time.Time) ([]loot.Reward, error) {
@@ -47,12 +49,19 @@ func (s RewardService) MaterializeDefeatedEncounter(playerInventory *inventory.I
 	if err != nil {
 		return nil, err
 	}
-	working := playerInventory.Clone()
+	working, _, err := s.decay.Resolve(playerInventory.Clone(), s.registry.Decay, awardedAt)
+	if err != nil {
+		return nil, err
+	}
 	for _, reward := range rewards {
 		if _, ok := s.registry.Items[reward.ItemID]; !ok {
 			return nil, fmt.Errorf("loot references unknown item %s", reward.ItemID)
 		}
-		if err := working.Add(reward.ItemID, reward.Quantity, awardedAt, nil, map[string]string{
+		expiresAt, err := decay.ExpirationFor(s.registry.Decay, reward.ItemID, awardedAt)
+		if err != nil {
+			return nil, err
+		}
+		if err := working.Add(reward.ItemID, reward.Quantity, awardedAt, expiresAt, map[string]string{
 			"source":            "monster_loot",
 			"run_id":            run.ID,
 			"monster_id":        monster.ID,
