@@ -112,3 +112,9 @@ type GatheringDefinition struct {
 	IntervalSeconds int             `json:"interval_seconds"`
 	Drops           []GatheringDrop `json:"drops"`
 }
+
+type DecayDefinition struct {
+	ID                  string `json:"id"`
+	ExpiresAfterSeconds int    `json:"expires_after"`
+	DecayIntoID         string `json:"decay_into"`
+}

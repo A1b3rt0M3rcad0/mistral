@@ -14,6 +14,7 @@ type Registry struct {
 	Recipes    map[string]RecipeDefinition
 	Dungeons   map[string]DungeonDefinition
 	Gathering  map[string]GatheringDefinition
+	Decay      map[string]DecayDefinition
 }
 
 func NewRegistry() Registry {
@@ -25,6 +26,7 @@ func NewRegistry() Registry {
 		Recipes:    map[string]RecipeDefinition{},
 		Dungeons:   map[string]DungeonDefinition{},
 		Gathering:  map[string]GatheringDefinition{},
+		Decay:      map[string]DecayDefinition{},
 	}
 }
 
@@ -146,7 +148,69 @@ func (r Registry) Validate() error {
 		}
 	}
 
+	for id, definition := range r.Decay {
+		if definition.ID != id {
+			errs = append(errs, fmt.Errorf("decay map key %q does not match definition id %q", id, definition.ID))
+		}
+		if _, ok := r.Items[id]; !ok {
+			errs = append(errs, fmt.Errorf("decay %s references unknown source item", id))
+		}
+		if definition.ExpiresAfterSeconds <= 0 {
+			errs = append(errs, fmt.Errorf("decay %s must have expires_after > 0", id))
+		}
+		if definition.DecayIntoID == "" {
+			errs = append(errs, fmt.Errorf("decay %s requires decay_into", id))
+		} else if _, ok := r.Items[definition.DecayIntoID]; !ok {
+			errs = append(errs, fmt.Errorf("decay %s references unknown target item %s", id, definition.DecayIntoID))
+		}
+		if definition.DecayIntoID == id {
+			errs = append(errs, fmt.Errorf("decay %s cannot transform into itself", id))
+		}
+	}
+	if err := r.validateDecayGraph(); err != nil {
+		errs = append(errs, err)
+	}
+
 	return errors.Join(errs...)
+}
+
+func (r Registry) validateDecayGraph() error {
+	const (
+		unvisited = 0
+		visiting  = 1
+		visited   = 2
+	)
+	states := map[string]int{}
+	var visit func(string) error
+	visit = func(itemID string) error {
+		switch states[itemID] {
+		case visiting:
+			return fmt.Errorf("decay graph contains a cycle at item %s", itemID)
+		case visited:
+			return nil
+		}
+		definition, ok := r.Decay[itemID]
+		if !ok {
+			states[itemID] = visited
+			return nil
+		}
+		states[itemID] = visiting
+		if _, chained := r.Decay[definition.DecayIntoID]; chained {
+			if err := visit(definition.DecayIntoID); err != nil {
+				return err
+			}
+		}
+		states[itemID] = visited
+		return nil
+	}
+	for itemID := range r.Decay {
+		if states[itemID] == unvisited {
+			if err := visit(itemID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (r Registry) DungeonTier(dungeonID string, tier int) (DungeonDefinition, DungeonTierDefinition, error) {

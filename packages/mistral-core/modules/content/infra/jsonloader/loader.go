@@ -64,6 +64,11 @@ func (l Loader) Load() (domain.Registry, error) {
 				return addUnique(registry.Gathering, v.ID, v, "gathering area")
 			})
 		},
+		func() error {
+			return loadDirectory(filepath.Join(l.root, "decay"), func(v domain.DecayDefinition) error {
+				return addUnique(registry.Decay, v.ID, v, "decay")
+			})
+		},
 	}
 	for _, load := range loaders {
 		if err := load(); err != nil {
