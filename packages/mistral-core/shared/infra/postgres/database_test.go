@@ -36,7 +36,9 @@ type transactionConn struct{ state *transactionState }
 
 type transactionTx struct{ state *transactionState }
 
-func (d transactionDriver) Open(string) (driver.Conn, error) { return &transactionConn{state: d.state}, nil }
+func (d transactionDriver) Open(string) (driver.Conn, error) {
+	return &transactionConn{state: d.state}, nil
+}
 
 func (c *transactionConn) Prepare(string) (driver.Stmt, error) {
 	return nil, errors.New("prepare not supported")
@@ -46,7 +48,9 @@ func (c *transactionConn) Close() error { return nil }
 
 func (c *transactionConn) Begin() (driver.Tx, error) { return c.begin() }
 
-func (c *transactionConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) { return c.begin() }
+func (c *transactionConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
+	return c.begin()
+}
 
 func (c *transactionConn) begin() (driver.Tx, error) {
 	c.state.mu.Lock()
