@@ -2,9 +2,7 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -58,14 +56,8 @@ func (s *Server) craft(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request craftRequest
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
-		return
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "request body must contain one JSON object"})
+	if err := decodeJSONBody(w, r, &request); err != nil {
+		writeJSONBodyError(w, err)
 		return
 	}
 	request.RecipeID = strings.TrimSpace(request.RecipeID)
