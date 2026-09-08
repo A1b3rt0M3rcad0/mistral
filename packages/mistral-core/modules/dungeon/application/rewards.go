@@ -45,7 +45,7 @@ func (s RewardService) MaterializeDefeatedEncounter(playerInventory *inventory.I
 		return nil, fmt.Errorf("unknown loot table %q for monster %s", monster.LootTableID, monster.ID)
 	}
 
-	rewards, err := s.loot.Roll(table, run.Seed+int64(encounter.Ordinal)*104729)
+	rewards, err := s.loot.RollVersioned(run.RulesetVersion, table, run.Seed+int64(encounter.Ordinal)*104729)
 	if err != nil {
 		return nil, err
 	}

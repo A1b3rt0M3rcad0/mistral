@@ -7,6 +7,7 @@ import (
 	"time"
 
 	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
+	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/shared/determinism"
 )
 
 type Engine struct{}
@@ -14,6 +15,19 @@ type Engine struct{}
 func NewEngine() Engine { return Engine{} }
 
 func (Engine) Resolve(run Run, tier content.DungeonTierDefinition, now time.Time) (Resolution, error) {
+	version, err := determinism.Canonical(run.RulesetVersion)
+	if err != nil {
+		return Resolution{}, err
+	}
+	switch version {
+	case determinism.RulesV1:
+		return resolveV1(run, tier, now)
+	default:
+		return Resolution{}, fmt.Errorf("unsupported dungeon ruleset version %q", version)
+	}
+}
+
+func resolveV1(run Run, tier content.DungeonTierDefinition, now time.Time) (Resolution, error) {
 	if run.ID == "" {
 		return Resolution{}, errors.New("run id is required")
 	}
@@ -39,7 +53,7 @@ func (Engine) Resolve(run Run, tier content.DungeonTierDefinition, now time.Time
 	interval := time.Duration(tier.EncounterIntervalSeconds) * time.Second
 	count := int(now.Sub(run.StartedAt) / interval)
 	encounters := make([]Encounter, 0, count)
-	rng := rand.New(rand.NewSource(run.Seed)) // #nosec G404 -- deterministic gameplay RNG is intentional.
+	rng := rand.New(rand.NewSource(run.Seed)) // #nosec G404 -- ruleset v1 intentionally preserves deterministic gameplay RNG.
 
 	for ordinal := 1; ordinal <= count; ordinal++ {
 		monsterID, err := chooseMonster(rng, tier.MonsterPool)

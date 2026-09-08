@@ -8,6 +8,7 @@ import (
 	"time"
 
 	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
+	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/shared/determinism"
 )
 
 type Engine struct{}
@@ -15,6 +16,19 @@ type Engine struct{}
 func NewEngine() Engine { return Engine{} }
 
 func (Engine) Resolve(session Session, definition content.GatheringDefinition, now time.Time) (Resolution, error) {
+	version, err := determinism.Canonical(session.RulesetVersion)
+	if err != nil {
+		return Resolution{}, err
+	}
+	switch version {
+	case determinism.RulesV1:
+		return resolveV1(session, definition, now)
+	default:
+		return Resolution{}, fmt.Errorf("unsupported gathering ruleset version %q", version)
+	}
+}
+
+func resolveV1(session Session, definition content.GatheringDefinition, now time.Time) (Resolution, error) {
 	if session.ID == "" || session.CharacterID == "" {
 		return Resolution{}, errors.New("session id and character id are required")
 	}
@@ -49,7 +63,7 @@ func (Engine) Resolve(session Session, definition content.GatheringDefinition, n
 	rewards := map[string]int{}
 	batches := []RewardBatch{}
 	for ordinal := session.ClaimedCycles + 1; ordinal <= totalCycles; ordinal++ {
-		rng := rand.New(rand.NewSource(session.Seed + int64(ordinal)*7919)) // #nosec G404 -- deterministic gameplay RNG is intentional.
+		rng := rand.New(rand.NewSource(session.Seed + int64(ordinal)*7919)) // #nosec G404 -- ruleset v1 intentionally preserves deterministic gameplay RNG.
 		acquiredAt := session.StartedAt.Add(time.Duration(ordinal) * interval)
 		for _, drop := range definition.Drops {
 			if drop.Probability <= 0 || drop.Probability > 1 {

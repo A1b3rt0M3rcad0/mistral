@@ -9,6 +9,7 @@ import (
 	decay "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/decay/domain"
 	gathering "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/gathering/domain"
 	inventory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/inventory/domain"
+	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/shared/determinism"
 )
 
 type Service struct {
@@ -35,6 +36,7 @@ func (s Service) Start(sessionID, characterID, gatheringID string, seed int64, s
 		ID:             sessionID,
 		CharacterID:    characterID,
 		ContentRelease: s.registry.Manifest.ReleaseID(),
+		RulesetVersion: determinism.Current,
 		GatheringID:    gatheringID,
 		Seed:           seed,
 		StartedAt:      startedAt,

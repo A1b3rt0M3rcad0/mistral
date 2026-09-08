@@ -6,6 +6,7 @@ import (
 	"math/rand"
 
 	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
+	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/shared/determinism"
 )
 
 type Reward struct {
@@ -17,11 +18,28 @@ type Engine struct{}
 
 func NewEngine() Engine { return Engine{} }
 
-func (Engine) Roll(table content.LootTableDefinition, seed int64) ([]Reward, error) {
+func (e Engine) Roll(table content.LootTableDefinition, seed int64) ([]Reward, error) {
+	return e.RollVersioned(determinism.Current, table, seed)
+}
+
+func (Engine) RollVersioned(version determinism.Version, table content.LootTableDefinition, seed int64) ([]Reward, error) {
+	canonical, err := determinism.Canonical(version)
+	if err != nil {
+		return nil, err
+	}
+	switch canonical {
+	case determinism.RulesV1:
+		return rollV1(table, seed)
+	default:
+		return nil, fmt.Errorf("unsupported loot ruleset version %q", canonical)
+	}
+}
+
+func rollV1(table content.LootTableDefinition, seed int64) ([]Reward, error) {
 	if table.ID == "" {
 		return nil, errors.New("loot table id is required")
 	}
-	rng := rand.New(rand.NewSource(seed)) // #nosec G404 -- deterministic gameplay RNG is intentional.
+	rng := rand.New(rand.NewSource(seed)) // #nosec G404 -- ruleset v1 intentionally preserves deterministic gameplay RNG.
 	rewards := make([]Reward, 0, len(table.Entries))
 	for _, entry := range table.Entries {
 		if entry.ItemID == "" {
