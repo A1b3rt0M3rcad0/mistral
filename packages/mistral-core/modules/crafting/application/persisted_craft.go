@@ -69,10 +69,11 @@ func (s PersistedCraftService) Execute(ctx context.Context, command CraftCommand
 		return CraftCommandResult{}, err
 	}
 	requestHash := persistence.HashRequest(intent)
+	scope := craftCommandScope + ":" + command.CharacterID
 	var result CraftCommandResult
 
 	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
-		claim, err := s.ledger.Claim(txCtx, persistence.ClaimRequest{Scope: craftCommandScope, Key: command.IdempotencyKey, RequestHash: requestHash, ClaimedAt: command.Now})
+		claim, err := s.ledger.Claim(txCtx, persistence.ClaimRequest{Scope: scope, Key: command.IdempotencyKey, RequestHash: requestHash, ClaimedAt: command.Now})
 		if err != nil {
 			return err
 		}
@@ -108,7 +109,7 @@ func (s PersistedCraftService) Execute(ctx context.Context, command CraftCommand
 		if err != nil {
 			return err
 		}
-		_, err = s.ledger.Complete(txCtx, craftCommandScope, command.IdempotencyKey, requestHash, response, command.Now)
+		_, err = s.ledger.Complete(txCtx, scope, command.IdempotencyKey, requestHash, response, command.Now)
 		return err
 	})
 	return result, err
