@@ -59,11 +59,18 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /readyz", s.ready)
 	s.mux.HandleFunc("GET /api/v1/content/release", s.contentRelease)
 	s.mux.HandleFunc("GET /api/v1/content/races", s.contentRaces)
-	s.mux.HandleFunc("GET /api/v1/characters", s.listCharacters)
-	s.mux.HandleFunc("GET /api/v1/characters/{characterID}", s.getCharacter)
-	s.mux.HandleFunc("GET /api/v1/characters/{characterID}/inventory", s.getInventory)
-	s.mux.HandleFunc("POST /api/v1/characters", s.createCharacter)
-	s.mux.HandleFunc("POST /api/v1/characters/{characterID}/crafts", s.craft)
+	s.mux.HandleFunc("GET /api/v1/characters", privateResponse(s.listCharacters))
+	s.mux.HandleFunc("GET /api/v1/characters/{characterID}", privateResponse(s.getCharacter))
+	s.mux.HandleFunc("GET /api/v1/characters/{characterID}/inventory", privateResponse(s.getInventory))
+	s.mux.HandleFunc("POST /api/v1/characters", privateResponse(s.createCharacter))
+	s.mux.HandleFunc("POST /api/v1/characters/{characterID}/crafts", privateResponse(s.craft))
+}
+
+func privateResponse(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "private, no-store")
+		next(w, r)
+	}
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -103,6 +110,7 @@ func (s *Server) contentRelease(w http.ResponseWriter, r *http.Request) {
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
