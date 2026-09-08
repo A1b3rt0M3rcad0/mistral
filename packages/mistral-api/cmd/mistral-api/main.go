@@ -32,9 +32,16 @@ func main() {
 	migrate := flag.Bool("migrate", false, "apply pending SQL migrations before serving")
 	migrationRoot := flag.String("migrations", "./migrations", "path to SQL migrations")
 	readHeaderTimeout := flag.Duration("read-header-timeout", 5*time.Second, "maximum time to read HTTP request headers")
+	readTimeout := flag.Duration("read-timeout", 15*time.Second, "maximum time to read a complete HTTP request")
+	writeTimeout := flag.Duration("write-timeout", 30*time.Second, "maximum time to write an HTTP response")
 	idleTimeout := flag.Duration("idle-timeout", 60*time.Second, "maximum keep-alive idle time")
 	shutdownTimeout := flag.Duration("shutdown-timeout", 10*time.Second, "graceful HTTP shutdown timeout")
+	maxHeaderBytes := flag.Int("max-header-bytes", 64<<10, "maximum total size of HTTP request headers")
 	flag.Parse()
+
+	if *readHeaderTimeout <= 0 || *readTimeout <= 0 || *writeTimeout <= 0 || *idleTimeout <= 0 || *shutdownTimeout <= 0 || *maxHeaderBytes <= 0 {
+		log.Fatal("HTTP timeouts and max-header-bytes must be positive")
+	}
 
 	contentService := contentcomposition.NewService(*contentRoot)
 	registry, err := contententrypoint.New(contentService).LoadRelease()
@@ -95,7 +102,10 @@ func main() {
 		Addr:              *listen,
 		Handler:           api.Handler(),
 		ReadHeaderTimeout: *readHeaderTimeout,
+		ReadTimeout:       *readTimeout,
+		WriteTimeout:      *writeTimeout,
 		IdleTimeout:       *idleTimeout,
+		MaxHeaderBytes:    *maxHeaderBytes,
 	}
 
 	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
