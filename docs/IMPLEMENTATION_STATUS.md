@@ -33,13 +33,13 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - Deterministic RNG per cycle.
 - Claim cursor (`claimed_cycles`) preventing duplicate rewards.
 - Claim results independent of claim batching.
-- Atomic inventory materialization.
+- Atomic inventory materialization in the pure use case.
 
 ### Crafting
 
 - Recipe/station validation.
 - Multi-craft support.
-- Atomic ingredient consumption/output materialization.
+- Atomic ingredient consumption/output materialization in the pure use case.
 
 ### Dungeon
 
@@ -55,6 +55,17 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - `CombatResolver` application port.
 - Disabled production resolver rather than a fabricated combat equation.
 - Test resolver used only to prove orchestration.
+
+### Persistence boundary
+
+- Generic versioned persistence record (`Record[T]`).
+- Explicit `ErrNotFound`, `ErrAlreadyExists` and optimistic `ErrConflict` semantics.
+- Repository ports for Character, Inventory, Gathering Session and Dungeon Run.
+- `Save(value, expectedVersion)` contract for compare-and-swap style writes.
+- Thread-safe in-memory adapters used to validate the repository contract before introducing a database.
+- Tests proving stale writes are rejected instead of silently overwriting newer state.
+
+This is intentionally not yet a database implementation. The purpose of the current layer is to freeze persistence semantics so a PostgreSQL adapter has a precise contract to implement.
 
 ## Proven executable path
 
@@ -98,19 +109,22 @@ The current contract says a key makes the boss available but does not specify wh
 
 ### Persistence and identity
 
+Repository and optimistic-concurrency semantics are now defined. Remaining work is:
+
 - Account/authentication contract.
-- Character repository/persistence contract.
-- Inventory persistence and transaction boundary.
-- Gathering session persistence.
-- Dungeon run persistence and materialization cursor.
-- Concurrency/idempotency strategy for multi-request claims.
+- Multi-aggregate transaction boundary for commands that mutate both activity state and inventory/character state.
+- PostgreSQL adapters implementing the versioned repository ports.
+- Database migrations/schema.
+- Idempotency keys or equivalent command-deduplication semantics at the host boundary.
+- Dungeon materialization cursor/checkpoint semantics once defeated-encounter persistence is exposed.
 
 ## Next engineering slice
 
-The next high-leverage slice is persistence around the already-tested aggregates, not additional game systems. Recommended order:
+The next high-leverage slice is the transactional persistence implementation around the already-tested aggregates:
 
-1. Define repository ports and optimistic-concurrency/version semantics.
-2. Add PostgreSQL adapters for character, inventory and activity/run state.
-3. Add an application transaction boundary for claim/craft/reward operations.
-4. Expose server-authoritative HTTP commands only after those writes are atomic and idempotent.
-5. Then define the real combat contract and live Tier II content.
+1. Define a Unit of Work / transaction port for operations spanning multiple repositories.
+2. Specify command-level idempotency semantics independently from optimistic concurrency.
+3. Add PostgreSQL schema/migrations and adapters for Character, Inventory, Gathering Session and Dungeon Run.
+4. Implement atomic persisted gathering-claim/crafting/reward commands.
+5. Expose server-authoritative mutable HTTP commands only after those writes are transactional and replay-safe.
+6. Then define the real combat contract and live Tier II content.
