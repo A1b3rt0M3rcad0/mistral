@@ -2,7 +2,9 @@ package dbmigrate
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -38,9 +40,13 @@ func Apply(ctx context.Context, db *sql.DB, root string) error {
 
 	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
         version TEXT PRIMARY KEY,
+        checksum TEXT,
         applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`); err != nil {
 		return fmt.Errorf("ensure schema_migrations: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum TEXT`); err != nil {
+		return fmt.Errorf("ensure schema_migrations checksum: %w", err)
 	}
 
 	for _, name := range files {
@@ -56,6 +62,7 @@ func applyOne(ctx context.Context, db *sql.DB, root, name string) error {
 	if err != nil {
 		return fmt.Errorf("read migration %s: %w", name, err)
 	}
+	checksum := migrationChecksum(payload)
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin migration %s: %w", name, err)
@@ -70,24 +77,43 @@ func applyOne(ctx context.Context, db *sql.DB, root, name string) error {
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, migrationAdvisoryLock); err != nil {
 		return rollback(fmt.Errorf("lock migrations: %w", err))
 	}
-	var applied bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, name).Scan(&applied); err != nil {
-		return rollback(fmt.Errorf("check migration %s: %w", name, err))
-	}
-	if applied {
-		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
-			return fmt.Errorf("finish skipped migration %s: %w", name, err)
+
+	var storedChecksum sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT checksum FROM schema_migrations WHERE version = $1`, name).Scan(&storedChecksum)
+	switch {
+	case err == nil:
+		if storedChecksum.Valid {
+			if storedChecksum.String != checksum {
+				return rollback(fmt.Errorf("migration %s checksum mismatch", name))
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx, `UPDATE schema_migrations SET checksum = $2 WHERE version = $1`, name, checksum); err != nil {
+				return rollback(fmt.Errorf("backfill migration %s checksum: %w", name, err))
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("finish existing migration %s: %w", name, err)
 		}
 		return nil
+	case errors.Is(err, sql.ErrNoRows):
+		// Migration has not been applied yet.
+	default:
+		return rollback(fmt.Errorf("check migration %s: %w", name, err))
 	}
+
 	if _, err := tx.ExecContext(ctx, string(payload)); err != nil {
 		return rollback(fmt.Errorf("apply migration %s: %w", name, err))
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, name); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)`, name, checksum); err != nil {
 		return rollback(fmt.Errorf("record migration %s: %w", name, err))
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration %s: %w", name, err)
 	}
 	return nil
+}
+
+func migrationChecksum(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
 }
