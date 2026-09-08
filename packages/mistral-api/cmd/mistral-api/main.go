@@ -13,8 +13,10 @@ import (
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/dbmigrate"
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/gameplaydb"
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/httpapi"
+	characterapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/application"
 	contentcomposition "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/composition"
 	contententrypoint "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/entrypoint"
+	identityapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/identity/application"
 )
 
 func main() {
@@ -52,7 +54,19 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		options = append(options, httpapi.WithGameplayStore(gameplay))
+		registration := characterapplication.NewPersistedRegistrationService(
+			characterapplication.NewService(registry),
+			gameplay.Characters,
+			gameplay.Inventories,
+			gameplay.Ownership,
+			gameplay.Transactor,
+			gameplay.Idempotency,
+		)
+		options = append(options,
+			httpapi.WithGameplayStore(gameplay),
+			httpapi.WithCharacterRegistrar(registration),
+			httpapi.WithCharacterAuthorizer(identityapplication.NewAuthorizer(gameplay.Ownership)),
+		)
 	}
 
 	server := httpapi.New(registry, options...)

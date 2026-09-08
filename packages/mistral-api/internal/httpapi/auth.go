@@ -34,7 +34,7 @@ func WithCharacterAuthorizer(authorizer CharacterAuthorizer) Option {
 	}
 }
 
-func (s *Server) authorizeCharacter(r *http.Request, characterID string) (Principal, error) {
+func (s *Server) resolvePrincipal(r *http.Request) (Principal, error) {
 	if s.principals == nil {
 		return Principal{}, ErrUnauthenticated
 	}
@@ -44,6 +44,14 @@ func (s *Server) authorizeCharacter(r *http.Request, characterID string) (Princi
 	}
 	if principal.SubjectID == "" {
 		return Principal{}, ErrUnauthenticated
+	}
+	return principal, nil
+}
+
+func (s *Server) authorizeCharacter(r *http.Request, characterID string) (Principal, error) {
+	principal, err := s.resolvePrincipal(r)
+	if err != nil {
+		return Principal{}, err
 	}
 	if s.characterAuthorizer == nil {
 		return Principal{}, errors.New("character authorizer is not configured")
