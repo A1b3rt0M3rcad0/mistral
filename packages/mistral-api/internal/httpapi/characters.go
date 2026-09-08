@@ -24,8 +24,7 @@ func WithCharacterRegistrar(registrar CharacterRegistrar) Option {
 }
 
 type createCharacterRequest struct {
-	CharacterID string `json:"character_id"`
-	RaceID      string `json:"race_id"`
+	RaceID string `json:"race_id"`
 }
 
 func (s *Server) createCharacter(w http.ResponseWriter, r *http.Request) {
@@ -59,17 +58,15 @@ func (s *Server) createCharacter(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "request body must contain one JSON object"})
 		return
 	}
-	request.CharacterID = strings.TrimSpace(request.CharacterID)
 	request.RaceID = strings.TrimSpace(request.RaceID)
-	if request.CharacterID == "" || request.RaceID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "character_id and race_id are required"})
+	if request.RaceID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "race_id is required"})
 		return
 	}
 
 	result, err := s.characterRegistrar.Execute(r.Context(), characterapplication.RegistrationCommand{
 		IdempotencyKey: idempotencyKey,
 		SubjectID:      principal.SubjectID,
-		CharacterID:    request.CharacterID,
 		RaceID:         request.RaceID,
 		Now:            time.Now().UTC(),
 	})

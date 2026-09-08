@@ -19,6 +19,14 @@ import (
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/shared/persistence"
 )
 
+type fixedCharacterIDGenerator struct {
+	id string
+}
+
+func (g fixedCharacterIDGenerator) NewCharacterID() (string, error) {
+	return g.id, nil
+}
+
 func TestPostgresRegistrationOwnershipAndGatheringAreTransactionalAndReplaySafe(t *testing.T) {
 	dsn := os.Getenv("MISTRAL_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -52,6 +60,7 @@ func TestPostgresRegistrationOwnershipAndGatheringAreTransactionalAndReplaySafe(
 	registeredAt := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
 	registrationService := characterapplication.NewPersistedRegistrationService(
 		characterapplication.NewService(registry),
+		fixedCharacterIDGenerator{id: "character-postgres"},
 		store.Characters,
 		store.Inventories,
 		store.Ownership,
@@ -61,7 +70,6 @@ func TestPostgresRegistrationOwnershipAndGatheringAreTransactionalAndReplaySafe(
 	registrationCommand := characterapplication.RegistrationCommand{
 		IdempotencyKey: "register-postgres",
 		SubjectID:      "subject-postgres",
-		CharacterID:    "character-postgres",
 		RaceID:         "human",
 		Now:            registeredAt,
 	}
@@ -69,7 +77,7 @@ func TestPostgresRegistrationOwnershipAndGatheringAreTransactionalAndReplaySafe(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if registration.Replayed || registration.Character.ID != registrationCommand.CharacterID {
+	if registration.Replayed || registration.Character.ID != "character-postgres" {
 		t.Fatalf("unexpected registration result: %#v", registration)
 	}
 	replayedRegistration, err := registrationService.Execute(ctx, registrationCommand)
@@ -81,13 +89,13 @@ func TestPostgresRegistrationOwnershipAndGatheringAreTransactionalAndReplaySafe(
 	}
 
 	authorizer := identityapplication.NewAuthorizer(store.Ownership)
-	if err := authorizer.Authorize(ctx, registrationCommand.SubjectID, registrationCommand.CharacterID); err != nil {
+	if err := authorizer.Authorize(ctx, registrationCommand.SubjectID, registration.Character.ID); err != nil {
 		t.Fatalf("owner should be authorized: %v", err)
 	}
-	if err := authorizer.Authorize(ctx, "other-subject", registrationCommand.CharacterID); !errors.Is(err, identityapplication.ErrForbidden) {
+	if err := authorizer.Authorize(ctx, "other-subject", registration.Character.ID); !errors.Is(err, identityapplication.ErrForbidden) {
 		t.Fatalf("non-owner should be forbidden, got %v", err)
 	}
-	otherOwnership, _ := identity.NewOwnership("other-subject", registrationCommand.CharacterID)
+	otherOwnership, _ := identity.NewOwnership("other-subject", registration.Character.ID)
 	if err := store.Ownership.Bind(ctx, otherOwnership); !errors.Is(err, identityapplication.ErrCharacterAlreadyOwned) {
 		t.Fatalf("ownership rebinding should fail, got %v", err)
 	}

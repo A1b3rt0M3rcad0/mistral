@@ -25,13 +25,13 @@ func (r *recordingRegistrar) Execute(_ context.Context, command characterapplica
 	return r.result, r.err
 }
 
-func TestCreateCharacterUsesAuthenticatedSubjectAndIdempotencyKey(t *testing.T) {
-	registrar := &recordingRegistrar{result: characterapplication.RegistrationResult{Character: character.Character{ID: "hero-1", RaceID: "human", Level: 1}}}
+func TestCreateCharacterUsesAuthenticatedSubjectAndServerGeneratedIdentity(t *testing.T) {
+	registrar := &recordingRegistrar{result: characterapplication.RegistrationResult{Character: character.Character{ID: "generated-hero", RaceID: "human", Level: 1}}}
 	server := New(content.NewRegistry(),
 		WithPrincipalResolver(staticPrincipalResolver{principal: Principal{SubjectID: "subject-1"}}),
 		WithCharacterRegistrar(registrar),
 	)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/characters", strings.NewReader(`{"character_id":"hero-1","race_id":"human"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/characters", strings.NewReader(`{"race_id":"human"}`))
 	request.Header.Set("Idempotency-Key", "register-1")
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
@@ -42,34 +42,40 @@ func TestCreateCharacterUsesAuthenticatedSubjectAndIdempotencyKey(t *testing.T) 
 	if registrar.calls != 1 {
 		t.Fatalf("registrar calls = %d, want 1", registrar.calls)
 	}
-	if registrar.command.SubjectID != "subject-1" || registrar.command.CharacterID != "hero-1" || registrar.command.RaceID != "human" || registrar.command.IdempotencyKey != "register-1" {
+	if registrar.command.SubjectID != "subject-1" || registrar.command.RaceID != "human" || registrar.command.IdempotencyKey != "register-1" {
 		t.Fatalf("unexpected registration command: %#v", registrar.command)
 	}
 }
 
-func TestCreateCharacterRejectsClientSuppliedSubjectID(t *testing.T) {
-	registrar := &recordingRegistrar{}
-	server := New(content.NewRegistry(),
-		WithPrincipalResolver(staticPrincipalResolver{principal: Principal{SubjectID: "subject-1"}}),
-		WithCharacterRegistrar(registrar),
-	)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/characters", strings.NewReader(`{"character_id":"hero-1","race_id":"human","subject_id":"attacker"}`))
-	request.Header.Set("Idempotency-Key", "register-1")
-	recorder := httptest.NewRecorder()
-	server.Handler().ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", recorder.Code)
-	}
-	if registrar.calls != 0 {
-		t.Fatalf("registrar calls = %d, want 0", registrar.calls)
+func TestCreateCharacterRejectsClientSuppliedIdentityFields(t *testing.T) {
+	for name, body := range map[string]string{
+		"subject":   `{"race_id":"human","subject_id":"attacker"}`,
+		"character": `{"race_id":"human","character_id":"chosen-by-client"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			registrar := &recordingRegistrar{}
+			server := New(content.NewRegistry(),
+				WithPrincipalResolver(staticPrincipalResolver{principal: Principal{SubjectID: "subject-1"}}),
+				WithCharacterRegistrar(registrar),
+			)
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/characters", strings.NewReader(body))
+			request.Header.Set("Idempotency-Key", "register-1")
+			recorder := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", recorder.Code)
+			}
+			if registrar.calls != 0 {
+				t.Fatalf("registrar calls = %d, want 0", registrar.calls)
+			}
+		})
 	}
 }
 
 func TestCreateCharacterRequiresAuthenticationAndIdempotencyKey(t *testing.T) {
 	registrar := &recordingRegistrar{}
 	unauthenticated := New(content.NewRegistry(), WithCharacterRegistrar(registrar))
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/characters", strings.NewReader(`{"character_id":"hero-1","race_id":"human"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/characters", strings.NewReader(`{"race_id":"human"}`))
 	request.Header.Set("Idempotency-Key", "register-1")
 	recorder := httptest.NewRecorder()
 	unauthenticated.Handler().ServeHTTP(recorder, request)
@@ -81,7 +87,7 @@ func TestCreateCharacterRequiresAuthenticationAndIdempotencyKey(t *testing.T) {
 		WithPrincipalResolver(staticPrincipalResolver{principal: Principal{SubjectID: "subject-1"}}),
 		WithCharacterRegistrar(registrar),
 	)
-	request = httptest.NewRequest(http.MethodPost, "/api/v1/characters", strings.NewReader(`{"character_id":"hero-1","race_id":"human"}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/characters", strings.NewReader(`{"race_id":"human"}`))
 	recorder = httptest.NewRecorder()
 	authenticated.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
@@ -90,12 +96,12 @@ func TestCreateCharacterRequiresAuthenticationAndIdempotencyKey(t *testing.T) {
 }
 
 func TestCreateCharacterReplayReturnsOK(t *testing.T) {
-	registrar := &recordingRegistrar{result: characterapplication.RegistrationResult{Character: character.Character{ID: "hero-1", RaceID: "human", Level: 1}, Replayed: true}}
+	registrar := &recordingRegistrar{result: characterapplication.RegistrationResult{Character: character.Character{ID: "generated-hero", RaceID: "human", Level: 1}, Replayed: true}}
 	server := New(content.NewRegistry(),
 		WithPrincipalResolver(staticPrincipalResolver{principal: Principal{SubjectID: "subject-1"}}),
 		WithCharacterRegistrar(registrar),
 	)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/characters", strings.NewReader(`{"character_id":"hero-1","race_id":"human"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/characters", strings.NewReader(`{"race_id":"human"}`))
 	request.Header.Set("Idempotency-Key", "register-1")
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)

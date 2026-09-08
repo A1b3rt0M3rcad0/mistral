@@ -14,6 +14,10 @@ import (
 
 const registrationCommandScope = "character.register"
 
+type CharacterIDGenerator interface {
+	NewCharacterID() (string, error)
+}
+
 type RegistrationInventoryRepository interface {
 	Create(context.Context, inventory.Inventory) (persistence.Record[inventory.Inventory], error)
 }
@@ -25,7 +29,6 @@ type RegistrationOwnershipRepository interface {
 type RegistrationCommand struct {
 	IdempotencyKey string
 	SubjectID      string
-	CharacterID    string
 	RaceID         string
 	Now            time.Time
 }
@@ -37,6 +40,7 @@ type RegistrationResult struct {
 
 type PersistedRegistrationService struct {
 	game        Service
+	ids         CharacterIDGenerator
 	characters  Repository
 	inventories RegistrationInventoryRepository
 	ownership   RegistrationOwnershipRepository
@@ -44,9 +48,10 @@ type PersistedRegistrationService struct {
 	ledger      persistence.IdempotencyLedger
 }
 
-func NewPersistedRegistrationService(game Service, characters Repository, inventories RegistrationInventoryRepository, ownership RegistrationOwnershipRepository, transactor persistence.Transactor, ledger persistence.IdempotencyLedger) PersistedRegistrationService {
+func NewPersistedRegistrationService(game Service, ids CharacterIDGenerator, characters Repository, inventories RegistrationInventoryRepository, ownership RegistrationOwnershipRepository, transactor persistence.Transactor, ledger persistence.IdempotencyLedger) PersistedRegistrationService {
 	return PersistedRegistrationService{
 		game:        game,
+		ids:         ids,
 		characters:  characters,
 		inventories: inventories,
 		ownership:   ownership,
@@ -56,29 +61,29 @@ func NewPersistedRegistrationService(game Service, characters Repository, invent
 }
 
 func (s PersistedRegistrationService) Execute(ctx context.Context, command RegistrationCommand) (RegistrationResult, error) {
-	if command.IdempotencyKey == "" || command.SubjectID == "" || command.CharacterID == "" || command.RaceID == "" {
-		return RegistrationResult{}, errors.New("idempotency key, subject id, character id and race id are required")
+	if command.IdempotencyKey == "" || command.SubjectID == "" || command.RaceID == "" {
+		return RegistrationResult{}, errors.New("idempotency key, subject id and race id are required")
 	}
 	if command.Now.IsZero() {
 		return RegistrationResult{}, errors.New("command time is required")
 	}
-	if s.characters == nil || s.inventories == nil || s.ownership == nil || s.transactor == nil || s.ledger == nil {
+	if s.ids == nil || s.characters == nil || s.inventories == nil || s.ownership == nil || s.transactor == nil || s.ledger == nil {
 		return RegistrationResult{}, errors.New("persisted registration dependencies are required")
 	}
 	intent, err := json.Marshal(struct {
-		SubjectID   string `json:"subject_id"`
-		CharacterID string `json:"character_id"`
-		RaceID      string `json:"race_id"`
-	}{SubjectID: command.SubjectID, CharacterID: command.CharacterID, RaceID: command.RaceID})
+		SubjectID string `json:"subject_id"`
+		RaceID    string `json:"race_id"`
+	}{SubjectID: command.SubjectID, RaceID: command.RaceID})
 	if err != nil {
 		return RegistrationResult{}, err
 	}
 	requestHash := persistence.HashRequest(intent)
+	scope := registrationCommandScope + ":" + command.SubjectID
 	var result RegistrationResult
 
 	err = s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
 		claim, err := s.ledger.Claim(txCtx, persistence.ClaimRequest{
-			Scope:       registrationCommandScope,
+			Scope:       scope,
 			Key:         command.IdempotencyKey,
 			RequestHash: requestHash,
 			ClaimedAt:   command.Now,
@@ -100,15 +105,22 @@ func (s PersistedRegistrationService) Execute(ctx context.Context, command Regis
 			return errors.New("unknown idempotency claim disposition")
 		}
 
-		playerCharacter, err := s.game.Create(command.CharacterID, command.RaceID)
+		characterID, err := s.ids.NewCharacterID()
 		if err != nil {
 			return err
 		}
-		playerInventory, err := inventory.New(command.CharacterID)
+		if characterID == "" {
+			return errors.New("generated character id is empty")
+		}
+		playerCharacter, err := s.game.Create(characterID, command.RaceID)
 		if err != nil {
 			return err
 		}
-		ownership, err := identity.NewOwnership(command.SubjectID, command.CharacterID)
+		playerInventory, err := inventory.New(characterID)
+		if err != nil {
+			return err
+		}
+		ownership, err := identity.NewOwnership(command.SubjectID, characterID)
 		if err != nil {
 			return err
 		}
@@ -127,7 +139,7 @@ func (s PersistedRegistrationService) Execute(ctx context.Context, command Regis
 		if err != nil {
 			return err
 		}
-		_, err = s.ledger.Complete(txCtx, registrationCommandScope, command.IdempotencyKey, requestHash, response, command.Now)
+		_, err = s.ledger.Complete(txCtx, scope, command.IdempotencyKey, requestHash, response, command.Now)
 		return err
 	})
 	return result, err
