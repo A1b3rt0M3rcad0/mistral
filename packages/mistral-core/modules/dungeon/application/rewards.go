@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	contentapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/application"
 	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
 	decay "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/decay/domain"
 	dungeon "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/dungeon/domain"
@@ -14,13 +15,17 @@ import (
 )
 
 type RewardService struct {
-	registry content.Registry
-	loot     loot.Engine
-	decay    decay.Engine
+	catalog contentapplication.ReleaseCatalog
+	loot    loot.Engine
+	decay   decay.Engine
 }
 
 func NewRewardService(registry content.Registry) RewardService {
-	return RewardService{registry: registry, loot: loot.NewEngine(), decay: decay.NewEngine()}
+	return NewRewardServiceWithCatalog(contentapplication.NewCatalog(registry))
+}
+
+func NewRewardServiceWithCatalog(catalog contentapplication.ReleaseCatalog) RewardService {
+	return RewardService{catalog: catalog, loot: loot.NewEngine(), decay: decay.NewEngine()}
 }
 
 func (s RewardService) MaterializeDefeatedEncounter(playerInventory *inventory.Inventory, run dungeon.Run, encounter dungeon.Encounter, awardedAt time.Time) ([]loot.Reward, error) {
@@ -30,17 +35,21 @@ func (s RewardService) MaterializeDefeatedEncounter(playerInventory *inventory.I
 	if playerInventory.CharacterID != run.Character.CharacterID {
 		return nil, errors.New("dungeon run and inventory belong to different characters")
 	}
-	if run.ContentRelease != s.registry.Manifest.ReleaseID() {
-		return nil, fmt.Errorf("run content release %s does not match active release %s", run.ContentRelease, s.registry.Manifest.ReleaseID())
+	if s.catalog == nil {
+		return nil, errors.New("content release catalog is required")
+	}
+	registry, err := s.catalog.Resolve(run.ContentRelease)
+	if err != nil {
+		return nil, fmt.Errorf("resolve dungeon reward content release %s: %w", run.ContentRelease, err)
 	}
 	if encounter.Ordinal <= 0 || encounter.MonsterID == "" {
 		return nil, errors.New("encounter ordinal and monster id are required")
 	}
-	monster, ok := s.registry.Monsters[encounter.MonsterID]
+	monster, ok := registry.Monsters[encounter.MonsterID]
 	if !ok {
-		return nil, fmt.Errorf("unknown monster %q", encounter.MonsterID)
+		return nil, fmt.Errorf("unknown monster %q in release %s", encounter.MonsterID, run.ContentRelease)
 	}
-	table, ok := s.registry.LootTables[monster.LootTableID]
+	table, ok := registry.LootTables[monster.LootTableID]
 	if !ok {
 		return nil, fmt.Errorf("unknown loot table %q for monster %s", monster.LootTableID, monster.ID)
 	}
@@ -49,15 +58,15 @@ func (s RewardService) MaterializeDefeatedEncounter(playerInventory *inventory.I
 	if err != nil {
 		return nil, err
 	}
-	working, _, err := s.decay.Resolve(playerInventory.Clone(), s.registry.Decay, awardedAt)
+	working, _, err := s.decay.Resolve(playerInventory.Clone(), registry.Decay, awardedAt)
 	if err != nil {
 		return nil, err
 	}
 	for _, reward := range rewards {
-		if _, ok := s.registry.Items[reward.ItemID]; !ok {
+		if _, ok := registry.Items[reward.ItemID]; !ok {
 			return nil, fmt.Errorf("loot references unknown item %s", reward.ItemID)
 		}
-		expiresAt, err := decay.ExpirationFor(s.registry.Decay, reward.ItemID, awardedAt)
+		expiresAt, err := decay.ExpirationFor(registry.Decay, reward.ItemID, awardedAt)
 		if err != nil {
 			return nil, err
 		}
