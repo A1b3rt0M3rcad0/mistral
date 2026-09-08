@@ -1,0 +1,10 @@
+{
+  "id":"smelt_iron_ingot",
+  "station":"blacksmith",
+  "inputs":[
+    {"item_id":"iron_ore","quantity":2},
+    {"item_id":"coal","quantity":1}
+  ],
+  "output_item_id":"iron_ingot",
+  "output_quantity":1
+}

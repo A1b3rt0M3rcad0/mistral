@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: mistral
+          POSTGRES_PASSWORD: mistral
+          POSTGRES_DB: mistral_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mistral -d mistral_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MISTRAL_TEST_DATABASE_URL: postgres://mistral:mistral@localhost:5432/mistral_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: gofmt
+        run: |
+          files="$(gofmt -l $(find . -name '*.go' -not -path './packages/mistral-frontend/*'))"
+          if [ -n "$files" ]; then
+            echo "The following Go files are not gofmt-clean:"
+            echo "$files"
+            exit 1
+          fi
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Validate game content
+        run: go run ./tooling/content-validator -content ./content
+      - name: Architecture quality gate
+        run: go run ./tooling/quality-gate -root .
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/mistral-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - run: npm run build

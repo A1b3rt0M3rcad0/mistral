@@ -1,0 +1,11 @@
+{
+  "id":"iron_sword",
+  "station":"blacksmith",
+  "inputs":[
+    {"item_id":"iron_ingot","quantity":3},
+    {"item_id":"oak_handle","quantity":1},
+    {"item_id":"leather_strip","quantity":1}
+  ],
+  "output_item_id":"iron_sword",
+  "output_quantity":1
+}

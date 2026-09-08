@@ -1,0 +1,7 @@
+{
+  "id":"goblin_king",
+  "entries":[
+    {"item_id":"goblin_ear","probability":1.0,"min_quantity":3,"max_quantity":6},
+    {"item_id":"leather_strip","probability":0.75,"min_quantity":2,"max_quantity":4}
+  ]
+}

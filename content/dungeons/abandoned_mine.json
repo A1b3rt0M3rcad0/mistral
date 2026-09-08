@@ -1,0 +1,22 @@
+{
+  "id":"abandoned_mine",
+  "name":"Abandoned Mine",
+  "party_scaling":{
+    "monster_health_per_player":0.65,
+    "monster_damage_per_player":0.20,
+    "experience_multiplier":1.20,
+    "loot_multiplier":1.15
+  },
+  "tiers":[
+    {
+      "tier":1,
+      "encounter_interval_seconds":45,
+      "monster_pool":[
+        {"monster_id":"goblin","weight":80},
+        {"monster_id":"cave_spider","weight":20}
+      ],
+      "boss_id":"goblin_king",
+      "boss_key_item_id":"goblin_king_key"
+    }
+  ]
+}
