@@ -164,7 +164,8 @@ func sameMetadata(a, b map[string]string) bool {
 		return false
 	}
 	for key, value := range a {
-		if b[key] != value {
+		other, ok := b[key]
+		if !ok || other != value {
 			return false
 		}
 	}
