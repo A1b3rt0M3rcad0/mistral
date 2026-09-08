@@ -2,7 +2,7 @@
 
 Mistral is a browser-based IDLE MMORPG built around persistent progression through gathering, crafting, combat, scalable dungeons and cooperative play.
 
-The project is server-authoritative and Data-Driven: game engines live in code while mutable game content is declared through versioned, strictly validated contracts.
+The project is server-authoritative and Data-Driven: game engines live in code while game content is declared through versioned, strictly validated and immutable release contracts.
 
 ## Current bootstrap
 
@@ -16,6 +16,11 @@ content -------------------------> typed content loader/core
 Implemented foundations include:
 
 - content-addressed Game Content Releases (`version@sha256:...`);
+- immutable historical content-release archive in PostgreSQL, rebuilt into an in-memory release catalog on API startup;
+- archived release payloads with an explicit schema version and fail-closed handling for unsupported schemas;
+- deep-cloned release-catalog boundaries so callers cannot mutate already cataloged content through shared maps/slices;
+- deterministic ruleset identity (`mistral.rules.v1`) pinned to persisted IDLE sessions/runs, with legacy empty values permanently interpreted as v1 and unknown versions rejected;
+- gathering and dungeon resolution against the content release pinned in persisted state rather than whatever release happens to be active after a deploy;
 - typed/validated races, items, recipes, loot tables, monsters, gathering areas, decay rules and dungeons;
 - craft-only invariant for equipment/tools;
 - deterministic IDLE dungeon encounter scheduling and gathering;
@@ -25,19 +30,21 @@ Implemented foundations include:
 - deterministic monster/boss loot materialization;
 - boss-gated dungeon progression;
 - versioned PostgreSQL aggregate persistence with optimistic concurrency;
-- schema-aware readiness that rejects stale/incomplete gameplay databases;
+- bounded PostgreSQL connection pools with configurable open/idle/lifetime limits;
+- schema-aware readiness that rejects stale/incomplete gameplay databases and verifies the checksum of the required migration;
 - SHA-256 migration checksums that reject applied-migration drift;
 - transactional command idempotency and stored replay responses;
 - durable `subject_id -> character_id` ownership with fail-closed authorization;
 - authenticated reverse ownership lookup for rediscovering a subject's characters;
 - server-generated opaque 128-bit character ids;
 - replay-safe character registration and crafting commands;
-- graceful HTTP host shutdown on SIGINT/SIGTERM with configurable header, idle and shutdown timeouts;
+- bounded/strict mutable JSON request bodies and bounded `Idempotency-Key` headers;
+- graceful HTTP host shutdown on SIGINT/SIGTERM with configurable request/header/write/idle/shutdown limits;
 - live PostgreSQL 17 integration tests in CI;
 - a `CombatResolver` port with no invented production combat formula;
 - architecture quality gate and GitHub Actions CI.
 
-The integration suite executes the current content release through character creation, Iron Mine gathering, smelting, Iron Sword crafting, Abandoned Mine encounters, boss-key loot and a Goblin King challenge using an explicit test combat resolver.
+The integration suite executes the current content release through character creation, Iron Mine gathering, smelting, Iron Sword crafting, Abandoned Mine encounters, boss-key loot and a Goblin King challenge using an explicit test combat resolver. Separate regression tests prove that historical IDLE state remains bound to its original content release and ruleset after a newer release becomes active.
 
 ## Current HTTP surface
 
@@ -53,21 +60,33 @@ POST /api/v1/characters
 POST /api/v1/characters/{characterID}/crafts
 ```
 
+`GET /api/v1/content/release` and `GET /api/v1/content/races` expose release-derived ETags and support conditional revalidation with `If-None-Match` / `304 Not Modified`.
+
 `GET /api/v1/content/races` exposes the creation-time race catalog from the active immutable content release, including its `release_id`, and returns races in deterministic id order.
 
 Character-scoped routes are behind a provider-neutral `PrincipalResolver` plus ownership authorization. `GET /api/v1/characters` derives the subject exclusively from that principal and returns only characters owned by it. The default binary intentionally does not install an authentication provider yet, so protected routes fail closed until a concrete authentication adapter is selected.
 
 `GET /api/v1/characters/{characterID}/inventory` resolves perishable decay against the current server time before serializing the response. This projection is read-only: a simple GET does not write a new inventory version or create optimistic-concurrency contention.
 
-`POST /api/v1/characters` accepts the player's race choice but not `subject_id` or `character_id`: ownership comes from the authenticated principal and the internal character id is generated by the server. Mutable commands require replay-safe idempotency where applicable.
+`POST /api/v1/characters` accepts the player's race choice but not `subject_id` or `character_id`: ownership comes from the authenticated principal and the internal character id is generated by the server. Mutable commands require replay-safe idempotency where applicable. Mutable JSON bodies are capped at 1 MiB, reject unknown fields and accept exactly one JSON object; `Idempotency-Key` is capped at 255 bytes in both HTTP and PostgreSQL.
+
+## Content release durability and deterministic replay
+
+IDLE state does not depend only on a random seed. Gathering sessions and dungeon runs also pin both the exact `content_release` and deterministic `ruleset_version` used to interpret that seed.
+
+The current ruleset is `mistral.rules.v1`. Empty ruleset values from bootstrap-era persisted state remain permanently mapped to v1 for compatibility; they are not silently mapped to a future current version. Unknown ruleset versions fail closed.
+
+When PostgreSQL is configured, `mistral-api` archives the active immutable content release before opening its listener, loads all archived historical releases, validates them and reconstructs the runtime `ReleaseCatalog`. This allows a session/run started on release v1 to continue resolving against v1 even after release v2 is deployed and after the API process restarts.
+
+The `content_releases` archive is append-only at the repository boundary. Archiving the same exact release is idempotent; attempting to reuse a `release_id` with different content fails an integrity check. The relational row retains `release_id`, name, version and original content hash while the typed content payload is stored in JSONB. Payload serialization currently uses schema version 1, and unsupported schema versions fail closed instead of being interpreted by newer structs.
 
 ## API host lifecycle and readiness
 
-`mistral-api` owns HTTP transport lifecycle rather than delegating it to Core. The host binds the listener explicitly, handles `SIGINT`/`SIGTERM` with graceful `http.Server.Shutdown`, and exposes flags for `read-header-timeout`, `idle-timeout` and `shutdown-timeout`. This lets in-flight requests finish during normal deploy/restart windows while keeping transport concerns outside the gameplay modules.
+`mistral-api` owns HTTP transport lifecycle rather than delegating it to Core. The host binds the listener explicitly, handles `SIGINT`/`SIGTERM` with graceful `http.Server.Shutdown`, and exposes configurable limits for read headers, total request reads, response writes, keep-alive idle time, header bytes and shutdown time. This lets in-flight requests finish during normal deploy/restart windows while keeping transport concerns outside the gameplay modules.
 
-When persistence is configured, `/readyz` verifies more than connectivity: the required gameplay tables and the current required migration must exist. A PostgreSQL process that answers `Ping` but has an incomplete schema therefore remains unavailable to traffic.
+When persistence is configured, `/readyz` verifies more than connectivity: required gameplay tables must exist and the latest required migration must be present with exactly the checksum expected by the binary. A PostgreSQL process that answers `Ping` but has an incomplete or mismatched schema therefore remains unavailable to traffic.
 
-Applied migrations are content-immutable after checksum tracking is established. The migration runner records SHA-256 checksums and rejects a previously applied filename whose SQL payload changes; legacy rows without checksums are backfilled once on first execution of the new runner.
+Applied migrations are content-immutable after checksum tracking is established. The migration runner records SHA-256 checksums and rejects a previously applied filename whose SQL payload changes; legacy rows without checksums are backfilled once on first execution of the new runner. The current schema includes migrations through `000005_content_release_schema_version`.
 
 ## Known content/product gaps
 
@@ -90,4 +109,4 @@ go run ./tooling/content-validator -content ./content
 go run ./tooling/quality-gate -root .
 ```
 
-Frontend validation is enforced in CI with Node 22 and the TypeScript/Vite production build. Backend CI also boots PostgreSQL 17 and validates persistence, schema readiness, migration checksum drift and the live gameplay integration suite.
+Frontend validation is enforced in CI with Node 22 and the TypeScript/Vite production build. Backend CI also boots PostgreSQL 17 and validates persistence, historical content-release recovery, schema readiness, migration checksum drift, idempotency concurrency and the live gameplay integration suite.
