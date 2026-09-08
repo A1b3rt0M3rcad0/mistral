@@ -11,16 +11,15 @@ import (
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/database"
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/dbmigrate"
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-api/internal/gameplaydb"
-	character "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/domain"
+	characterapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/application"
 	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
 	gatheringapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/gathering/application"
 	identityapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/identity/application"
 	identity "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/identity/domain"
-	inventory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/inventory/domain"
 	"github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/shared/persistence"
 )
 
-func TestPostgresPersistedGatheringClaimIsTransactionalReplaySafeAndOwned(t *testing.T) {
+func TestPostgresRegistrationOwnershipAndGatheringAreTransactionalAndReplaySafe(t *testing.T) {
 	dsn := os.Getenv("MISTRAL_TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("MISTRAL_TEST_DATABASE_URL is not configured")
@@ -44,50 +43,62 @@ func TestPostgresPersistedGatheringClaimIsTransactionalReplaySafeAndOwned(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	playerCharacter, err := character.New("character-postgres", "human", nil)
+	registry := content.NewRegistry()
+	registry.Manifest = content.Manifest{Name: "test", Version: "1", Hash: "postgres"}
+	registry.Races["human"] = content.RaceDefinition{ID: "human", Name: "Human"}
+	registry.Items["iron_ore"] = content.ItemDefinition{ID: "iron_ore", Name: "Iron Ore", Kind: content.ItemKindMaterial}
+	registry.Gathering["iron_mine"] = content.GatheringDefinition{ID: "iron_mine", Discipline: "mining", Name: "Iron Mine", IntervalSeconds: 60, Drops: []content.GatheringDrop{{ItemID: "iron_ore", Probability: 1, MinQuantity: 1, MaxQuantity: 1}}}
+
+	registeredAt := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+	registrationService := characterapplication.NewPersistedRegistrationService(
+		characterapplication.NewService(registry),
+		store.Characters,
+		store.Inventories,
+		store.Ownership,
+		store.Transactor,
+		store.Idempotency,
+	)
+	registrationCommand := characterapplication.RegistrationCommand{
+		IdempotencyKey: "register-postgres",
+		SubjectID:      "subject-postgres",
+		CharacterID:    "character-postgres",
+		RaceID:         "human",
+		Now:            registeredAt,
+	}
+	registration, err := registrationService.Execute(ctx, registrationCommand)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Characters.Create(ctx, playerCharacter); err != nil {
-		t.Fatal(err)
+	if registration.Replayed || registration.Character.ID != registrationCommand.CharacterID {
+		t.Fatalf("unexpected registration result: %#v", registration)
 	}
-	ownership, err := identity.NewOwnership("subject-postgres", playerCharacter.ID)
+	replayedRegistration, err := registrationService.Execute(ctx, registrationCommand)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Ownership.Bind(ctx, ownership); err != nil {
-		t.Fatal(err)
+	if !replayedRegistration.Replayed || replayedRegistration.Character.ID != registration.Character.ID {
+		t.Fatalf("unexpected registration replay: %#v", replayedRegistration)
 	}
+
 	authorizer := identityapplication.NewAuthorizer(store.Ownership)
-	if err := authorizer.Authorize(ctx, "subject-postgres", playerCharacter.ID); err != nil {
+	if err := authorizer.Authorize(ctx, registrationCommand.SubjectID, registrationCommand.CharacterID); err != nil {
 		t.Fatalf("owner should be authorized: %v", err)
 	}
-	if err := authorizer.Authorize(ctx, "other-subject", playerCharacter.ID); !errors.Is(err, identityapplication.ErrForbidden) {
+	if err := authorizer.Authorize(ctx, "other-subject", registrationCommand.CharacterID); !errors.Is(err, identityapplication.ErrForbidden) {
 		t.Fatalf("non-owner should be forbidden, got %v", err)
 	}
-	otherOwnership, _ := identity.NewOwnership("other-subject", playerCharacter.ID)
+	otherOwnership, _ := identity.NewOwnership("other-subject", registrationCommand.CharacterID)
 	if err := store.Ownership.Bind(ctx, otherOwnership); !errors.Is(err, identityapplication.ErrCharacterAlreadyOwned) {
 		t.Fatalf("ownership rebinding should fail, got %v", err)
 	}
 
-	registry := content.NewRegistry()
-	registry.Manifest = content.Manifest{Name: "test", Version: "1", Hash: "postgres"}
-	registry.Items["iron_ore"] = content.ItemDefinition{ID: "iron_ore", Name: "Iron Ore", Kind: content.ItemKindMaterial}
-	registry.Gathering["iron_mine"] = content.GatheringDefinition{ID: "iron_mine", Discipline: "mining", Name: "Iron Mine", IntervalSeconds: 60, Drops: []content.GatheringDrop{{ItemID: "iron_ore", Probability: 1, MinQuantity: 1, MaxQuantity: 1}}}
 	game := gatheringapplication.NewService(registry)
-	startedAt := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
-	session, err := game.Start("session-postgres", playerCharacter.ID, "iron_mine", 91, startedAt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	playerInventory, err := inventory.New(playerCharacter.ID)
+	startedAt := registeredAt.Add(time.Minute)
+	session, err := game.Start("session-postgres", registration.Character.ID, "iron_mine", 91, startedAt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Gathering.Create(ctx, session); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Inventories.Create(ctx, playerInventory); err != nil {
 		t.Fatal(err)
 	}
 
