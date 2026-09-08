@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	craftingapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/crafting/application"
 	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
+	craftingapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/crafting/application"
 )
 
 type recordingCrafter struct {
