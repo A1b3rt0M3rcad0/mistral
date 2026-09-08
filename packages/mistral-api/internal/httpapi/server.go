@@ -16,6 +16,7 @@ type Server struct {
 	principals          PrincipalResolver
 	characterAuthorizer CharacterAuthorizer
 	characterRegistrar  CharacterRegistrar
+	characterCrafter    CharacterCrafter
 	mux                 *http.ServeMux
 }
 
@@ -43,6 +44,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /readyz", s.ready)
 	s.mux.HandleFunc("GET /api/v1/content/release", s.contentRelease)
 	s.mux.HandleFunc("POST /api/v1/characters", s.createCharacter)
+	s.mux.HandleFunc("POST /api/v1/characters/{characterID}/crafts", s.craft)
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {

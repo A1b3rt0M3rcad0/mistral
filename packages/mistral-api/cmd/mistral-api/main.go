@@ -16,6 +16,7 @@ import (
 	characterapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/application"
 	contentcomposition "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/composition"
 	contententrypoint "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/entrypoint"
+	craftingapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/crafting/application"
 	identityapplication "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/identity/application"
 )
 
@@ -62,9 +63,16 @@ func main() {
 			gameplay.Transactor,
 			gameplay.Idempotency,
 		)
+		crafting := craftingapplication.NewPersistedCraftService(
+			craftingapplication.NewService(registry),
+			gameplay.Inventories,
+			gameplay.Transactor,
+			gameplay.Idempotency,
+		)
 		options = append(options,
 			httpapi.WithGameplayStore(gameplay),
 			httpapi.WithCharacterRegistrar(registration),
+			httpapi.WithCharacterCrafter(crafting),
 			httpapi.WithCharacterAuthorizer(identityapplication.NewAuthorizer(gameplay.Ownership)),
 		)
 	}

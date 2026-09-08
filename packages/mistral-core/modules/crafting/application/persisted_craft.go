@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	inventory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/inventory/domain"
@@ -11,6 +12,8 @@ import (
 )
 
 const craftCommandScope = "crafting.craft"
+
+var ErrCraftRejected = errors.New("craft rejected")
 
 type InventoryRepository interface {
 	Create(context.Context, inventory.Inventory) (persistence.Record[inventory.Inventory], error)
@@ -94,7 +97,7 @@ func (s PersistedCraftService) Execute(ctx context.Context, command CraftCommand
 		playerInventory := inventoryRecord.Value
 		craftResult, err := s.game.Craft(&playerInventory, command.RecipeID, command.Station, command.Crafts, command.Now)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrCraftRejected, err)
 		}
 		if _, err := s.inventories.Save(txCtx, playerInventory, inventoryRecord.Version); err != nil {
 			return err
