@@ -76,28 +76,29 @@ func layerViolation(filePath, importPath string) string {
 
 	switch {
 	case strings.Contains(filePath, "/domain/"):
-		if containsAny(importPath, "/application/", "/infra/", "/composition/", "/presentation/", "/entrypoint/") {
+		if containsLayer(importPath, "application", "infra", "composition", "presentation", "entrypoint") {
 			return "domain may depend only on inward domain/shared contracts, never application or outward layers"
 		}
 	case strings.Contains(filePath, "/application/"):
-		if containsAny(importPath, "/infra/", "/composition/", "/presentation/", "/entrypoint/") {
+		if containsLayer(importPath, "infra", "composition", "presentation", "entrypoint") {
 			return "application cannot depend on infrastructure, composition, presentation or entrypoint"
 		}
 	case strings.Contains(filePath, "/presentation/"):
-		if containsAny(importPath, "/infra/", "/composition/", "/entrypoint/") {
+		if containsLayer(importPath, "infra", "composition", "entrypoint") {
 			return "presentation cannot depend on infrastructure, composition or entrypoint"
 		}
 	case strings.Contains(filePath, "/infra/"):
-		if containsAny(importPath, "/composition/", "/presentation/", "/entrypoint/") {
+		if containsLayer(importPath, "composition", "presentation", "entrypoint") {
 			return "infrastructure cannot depend on composition, presentation or entrypoint"
 		}
 	}
 	return ""
 }
 
-func containsAny(value string, markers ...string) bool {
-	for _, marker := range markers {
-		if strings.Contains(value, marker) {
+func containsLayer(importPath string, layers ...string) bool {
+	for _, layer := range layers {
+		segment := "/" + layer
+		if strings.HasSuffix(importPath, segment) || strings.Contains(importPath, segment+"/") {
 			return true
 		}
 	}
