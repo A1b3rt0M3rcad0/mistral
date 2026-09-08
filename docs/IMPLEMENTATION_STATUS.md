@@ -64,8 +64,18 @@ This document tracks the engineering state of the MVP bootstrap without treating
 - `Save(value, expectedVersion)` contract for compare-and-swap style writes.
 - Thread-safe in-memory adapters used to validate the repository contract before introducing a database.
 - Tests proving stale writes are rejected instead of silently overwriting newer state.
+- `Transactor` application-facing port for atomic work spanning multiple repositories.
+- Explicit separation between transaction atomicity, optimistic concurrency and command-level idempotency.
 
-This is intentionally not yet a database implementation. The purpose of the current layer is to freeze persistence semantics so a PostgreSQL adapter has a precise contract to implement.
+This is intentionally not yet a database implementation. The purpose of the current layer is to freeze persistence and transaction semantics so a PostgreSQL adapter has precise contracts to implement.
+
+### Architecture enforcement
+
+- Core cannot depend on API, Workers or Frontend hosts.
+- Domain cannot depend on application or outward layers.
+- Application cannot depend on infra, composition, presentation or entrypoint.
+- Infra cannot depend upward on composition, presentation or entrypoint.
+- Quality-gate tests cover allowed and forbidden dependency directions.
 
 ## Proven executable path
 
@@ -109,22 +119,22 @@ The current contract says a key makes the boss available but does not specify wh
 
 ### Persistence and identity
 
-Repository and optimistic-concurrency semantics are now defined. Remaining work is:
+Repository, optimistic-concurrency and transaction-port semantics are now defined. Remaining work is:
 
 - Account/authentication contract.
-- Multi-aggregate transaction boundary for commands that mutate both activity state and inventory/character state.
-- PostgreSQL adapters implementing the versioned repository ports.
+- Concrete PostgreSQL implementation of the `Transactor` and versioned repository ports.
 - Database migrations/schema.
 - Idempotency keys or equivalent command-deduplication semantics at the host boundary.
+- Persisted gathering claim/crafting/reward commands using one transaction.
 - Dungeon materialization cursor/checkpoint semantics once defeated-encounter persistence is exposed.
 
 ## Next engineering slice
 
-The next high-leverage slice is the transactional persistence implementation around the already-tested aggregates:
+The next high-leverage slice is the concrete transactional persistence implementation around the already-tested aggregates:
 
-1. Define a Unit of Work / transaction port for operations spanning multiple repositories.
-2. Specify command-level idempotency semantics independently from optimistic concurrency.
-3. Add PostgreSQL schema/migrations and adapters for Character, Inventory, Gathering Session and Dungeon Run.
+1. Specify command-level idempotency semantics independently from optimistic concurrency.
+2. Add PostgreSQL schema/migrations and adapters for Character, Inventory, Gathering Session and Dungeon Run.
+3. Implement the PostgreSQL `Transactor` so multi-repository writes share one database transaction.
 4. Implement atomic persisted gathering-claim/crafting/reward commands.
 5. Expose server-authoritative mutable HTTP commands only after those writes are transactional and replay-safe.
 6. Then define the real combat contract and live Tier II content.
