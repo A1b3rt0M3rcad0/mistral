@@ -18,14 +18,14 @@ type ReleaseArchive struct {
 }
 
 type releasePayload struct {
-	Races      map[string]content.RaceDefinition       `json:"races"`
-	Items      map[string]content.ItemDefinition       `json:"items"`
-	LootTables map[string]content.LootTableDefinition  `json:"loot_tables"`
-	Monsters   map[string]content.MonsterDefinition    `json:"monsters"`
-	Recipes    map[string]content.RecipeDefinition     `json:"recipes"`
-	Dungeons   map[string]content.DungeonDefinition    `json:"dungeons"`
-	Gathering  map[string]content.GatheringDefinition  `json:"gathering"`
-	Decay      map[string]content.DecayDefinition      `json:"decay"`
+	Races      map[string]content.RaceDefinition      `json:"races"`
+	Items      map[string]content.ItemDefinition      `json:"items"`
+	LootTables map[string]content.LootTableDefinition `json:"loot_tables"`
+	Monsters   map[string]content.MonsterDefinition   `json:"monsters"`
+	Recipes    map[string]content.RecipeDefinition    `json:"recipes"`
+	Dungeons   map[string]content.DungeonDefinition   `json:"dungeons"`
+	Gathering  map[string]content.GatheringDefinition `json:"gathering"`
+	Decay      map[string]content.DecayDefinition     `json:"decay"`
 }
 
 func NewReleaseArchive(db *sql.DB) (*ReleaseArchive, error) {
