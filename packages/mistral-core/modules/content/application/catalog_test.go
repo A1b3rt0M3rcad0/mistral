@@ -38,3 +38,50 @@ func TestCatalogResolvesActiveAndHistoricalReleases(t *testing.T) {
 		t.Fatalf("duplicate release error = %v", err)
 	}
 }
+
+func TestCatalogDoesNotExposeMutableReleaseState(t *testing.T) {
+	active := domain.NewRegistry()
+	active.Manifest = domain.Manifest{Name: "mistral", Version: "1", Hash: "immutable"}
+	active.Races["human"] = domain.RaceDefinition{
+		ID:   "human",
+		Name: "Human",
+		BaseModifiers: map[string]float64{
+			"strength": 1,
+		},
+	}
+	active.LootTables["loot"] = domain.LootTableDefinition{
+		ID:      "loot",
+		Entries: []domain.LootEntry{{ItemID: "ore", Probability: 1, MinQuantity: 1, MaxQuantity: 1}},
+	}
+
+	catalog := NewCatalog(active)
+	active.Races["human"] = domain.RaceDefinition{ID: "human", Name: "Mutated Source"}
+	active.LootTables["loot"] = domain.LootTableDefinition{ID: "loot"}
+
+	first, err := catalog.Active()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Races["human"].Name != "Human" || len(first.LootTables["loot"].Entries) != 1 {
+		t.Fatalf("catalog changed after source mutation: %#v %#v", first.Races["human"], first.LootTables["loot"])
+	}
+
+	race := first.Races["human"]
+	race.Name = "Mutated View"
+	race.BaseModifiers["strength"] = 999
+	first.Races["human"] = race
+	loot := first.LootTables["loot"]
+	loot.Entries[0].MinQuantity = 999
+	first.LootTables["loot"] = loot
+
+	second, err := catalog.Active()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Races["human"].Name != "Human" || second.Races["human"].BaseModifiers["strength"] != 1 {
+		t.Fatalf("resolved mutation leaked into catalog: %#v", second.Races["human"])
+	}
+	if len(second.LootTables["loot"].Entries) != 1 || second.LootTables["loot"].Entries[0].MinQuantity != 1 {
+		t.Fatalf("resolved loot mutation leaked into catalog: %#v", second.LootTables["loot"])
+	}
+}

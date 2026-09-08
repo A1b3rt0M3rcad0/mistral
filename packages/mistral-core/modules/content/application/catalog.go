@@ -25,7 +25,7 @@ type Catalog struct {
 func NewCatalog(active domain.Registry) *Catalog {
 	catalog := &Catalog{activeID: active.Manifest.ReleaseID(), releases: map[string]domain.Registry{}}
 	if catalog.activeID != "" {
-		catalog.releases[catalog.activeID] = active
+		catalog.releases[catalog.activeID] = active.Clone()
 	}
 	return catalog
 }
@@ -45,7 +45,7 @@ func (c *Catalog) Resolve(releaseID string) (domain.Registry, error) {
 	if !ok {
 		return domain.Registry{}, fmt.Errorf("%w: %s", ErrReleaseNotFound, releaseID)
 	}
-	return registry, nil
+	return registry.Clone(), nil
 }
 
 func (c *Catalog) Add(registry domain.Registry) error {
@@ -59,6 +59,6 @@ func (c *Catalog) Add(registry domain.Registry) error {
 	if _, exists := c.releases[releaseID]; exists {
 		return fmt.Errorf("%w: %s", ErrReleaseAlreadyExists, releaseID)
 	}
-	c.releases[releaseID] = registry
+	c.releases[releaseID] = registry.Clone()
 	return nil
 }
