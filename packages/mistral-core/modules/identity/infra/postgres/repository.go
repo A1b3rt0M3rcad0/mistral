@@ -60,4 +60,28 @@ func (r *Repository) ByCharacter(ctx context.Context, characterID string) (ident
 	return identity.Ownership{SubjectID: subjectID, CharacterID: characterID}, nil
 }
 
+func (r *Repository) BySubject(ctx context.Context, subjectID string) ([]identity.Ownership, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	rows, err := sharedpostgres.Runner(ctx, r.db).QueryContext(ctx, `SELECT character_id FROM character_ownerships WHERE subject_id = $1 ORDER BY character_id`, subjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	ownerships := make([]identity.Ownership, 0)
+	for rows.Next() {
+		var characterID string
+		if err := rows.Scan(&characterID); err != nil {
+			return nil, err
+		}
+		ownerships = append(ownerships, identity.Ownership{SubjectID: subjectID, CharacterID: characterID})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return ownerships, nil
+}
+
 var _ application.Repository = (*Repository)(nil)

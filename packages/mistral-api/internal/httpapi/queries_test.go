@@ -11,9 +11,69 @@ import (
 	character "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/domain"
 	charactermemory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/character/infra/memory"
 	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
+	identity "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/identity/domain"
+	identitymemory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/identity/infra/memory"
 	inventory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/inventory/domain"
 	inventorymemory "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/inventory/infra/memory"
 )
+
+func TestListCharactersUsesAuthenticatedSubjectOwnership(t *testing.T) {
+	characters := charactermemory.NewRepository()
+	for _, definition := range []struct {
+		id   string
+		race string
+	}{
+		{id: "hero-2", race: "elf"},
+		{id: "hero-1", race: "human"},
+		{id: "outsider", race: "orc"},
+	} {
+		playerCharacter, err := character.New(definition.id, definition.race, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := characters.Create(context.Background(), playerCharacter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ownership := identitymemory.NewRepository()
+	for _, binding := range []struct {
+		subjectID   string
+		characterID string
+	}{
+		{subjectID: "subject-1", characterID: "hero-2"},
+		{subjectID: "subject-1", characterID: "hero-1"},
+		{subjectID: "subject-2", characterID: "outsider"},
+	} {
+		record, err := identity.NewOwnership(binding.subjectID, binding.characterID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ownership.Bind(context.Background(), record); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	server := New(content.NewRegistry(),
+		WithPrincipalResolver(staticPrincipalResolver{principal: Principal{SubjectID: "subject-1"}}),
+		WithOwnershipReader(ownership),
+		WithCharacterReader(characters),
+	)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/characters", nil)
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	firstIndex := strings.Index(body, `"id":"hero-1"`)
+	secondIndex := strings.Index(body, `"id":"hero-2"`)
+	if firstIndex < 0 || secondIndex < 0 || firstIndex > secondIndex {
+		t.Fatalf("characters are missing or not deterministic: %s", body)
+	}
+	if strings.Contains(body, `"id":"outsider"`) {
+		t.Fatalf("list leaked another subject's character: %s", body)
+	}
+}
 
 func TestCharacterQueriesRequireOwnershipAndReturnAuthoritativeState(t *testing.T) {
 	characters := charactermemory.NewRepository()
@@ -82,6 +142,7 @@ func TestCharacterQueriesRejectNonOwnerBeforeReadingState(t *testing.T) {
 func TestCharacterQueriesRequireAuthentication(t *testing.T) {
 	server := New(content.NewRegistry())
 	for _, path := range []string{
+		"/api/v1/characters",
 		"/api/v1/characters/hero-1",
 		"/api/v1/characters/hero-1/inventory",
 	} {

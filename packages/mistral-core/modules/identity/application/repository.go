@@ -16,4 +16,5 @@ var (
 type Repository interface {
 	Bind(context.Context, identity.Ownership) error
 	ByCharacter(context.Context, string) (identity.Ownership, error)
+	BySubject(context.Context, string) ([]identity.Ownership, error)
 }

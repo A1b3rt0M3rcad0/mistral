@@ -95,6 +95,20 @@ func TestPostgresRegistrationOwnershipAndGatheringAreTransactionalAndReplaySafe(
 	if err := authorizer.Authorize(ctx, "other-subject", registration.Character.ID); !errors.Is(err, identityapplication.ErrForbidden) {
 		t.Fatalf("non-owner should be forbidden, got %v", err)
 	}
+	ownedCharacters, err := store.Ownership.BySubject(ctx, registrationCommand.SubjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ownedCharacters) != 1 || ownedCharacters[0].CharacterID != registration.Character.ID {
+		t.Fatalf("owned characters = %#v", ownedCharacters)
+	}
+	unownedCharacters, err := store.Ownership.BySubject(ctx, "subject-without-characters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unownedCharacters) != 0 {
+		t.Fatalf("unexpected ownerships = %#v", unownedCharacters)
+	}
 	otherOwnership, _ := identity.NewOwnership("other-subject", registration.Character.ID)
 	if err := store.Ownership.Bind(ctx, otherOwnership); !errors.Is(err, identityapplication.ErrCharacterAlreadyOwned) {
 		t.Fatalf("ownership rebinding should fail, got %v", err)
