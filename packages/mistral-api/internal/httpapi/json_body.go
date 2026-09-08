@@ -11,7 +11,7 @@ import (
 const maxRequestBodyBytes int64 = 1 << 20
 
 var (
-	ErrInvalidRequestBody = errors.New("invalid request body")
+	ErrInvalidRequestBody  = errors.New("invalid request body")
 	ErrRequestBodyTooLarge = errors.New("request body too large")
 )
 
