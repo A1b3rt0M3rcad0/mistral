@@ -1,5 +1,3 @@
-BEGIN;
-
 CREATE TABLE characters (
     id TEXT PRIMARY KEY,
     version BIGINT NOT NULL DEFAULT 1 CHECK (version > 0),
@@ -44,5 +42,3 @@ CREATE TABLE idempotency_commands (
 );
 
 CREATE INDEX idempotency_commands_created_at_idx ON idempotency_commands (created_at);
-
-COMMIT;
