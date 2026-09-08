@@ -1,0 +1,7 @@
+{
+  "id":"cave_spider_common",
+  "entries":[
+    {"item_id":"spider_silk","probability":0.65,"min_quantity":1,"max_quantity":2},
+    {"item_id":"goblin_king_key","probability":0.01,"min_quantity":1,"max_quantity":1}
+  ]
+}

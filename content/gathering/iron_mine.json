@@ -1,0 +1,10 @@
+{
+  "id":"iron_mine",
+  "discipline":"mining",
+  "name":"Iron Mine",
+  "interval_seconds":60,
+  "drops":[
+    {"item_id":"iron_ore","probability":0.80,"min_quantity":1,"max_quantity":2},
+    {"item_id":"coal","probability":0.15,"min_quantity":1,"max_quantity":1}
+  ]
+}

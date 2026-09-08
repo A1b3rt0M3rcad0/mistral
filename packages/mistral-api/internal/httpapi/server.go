@@ -1,0 +1,51 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"net/http"
+
+	content "github.com/A1b3rt0M3rcad0/mistral/packages/mistral-core/modules/content/domain"
+)
+
+type Server struct {
+	registry content.Registry
+	mux      *http.ServeMux
+}
+
+func New(registry content.Registry) *Server {
+	s := &Server{registry: registry, mux: http.NewServeMux()}
+	s.routes()
+	return s
+}
+
+func (s *Server) Handler() http.Handler { return s.mux }
+
+func (s *Server) routes() {
+	s.mux.HandleFunc("GET /healthz", s.health)
+	s.mux.HandleFunc("GET /api/v1/content/release", s.contentRelease)
+}
+
+func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) contentRelease(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"name":       s.registry.Manifest.Name,
+		"version":    s.registry.Manifest.Version,
+		"hash":       s.registry.Manifest.Hash,
+		"release_id": s.registry.Manifest.ReleaseID(),
+		"races":      len(s.registry.Races),
+		"items":      len(s.registry.Items),
+		"monsters":   len(s.registry.Monsters),
+		"dungeons":   len(s.registry.Dungeons),
+		"recipes":    len(s.registry.Recipes),
+		"gathering":  len(s.registry.Gathering),
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}

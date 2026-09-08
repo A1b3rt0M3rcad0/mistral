@@ -1,0 +1,35 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #e9edf5;
+  background: #0a0d12;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.shell {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 12vh 28px;
+}
+
+.eyebrow {
+  letter-spacing: 0.16em;
+  font-size: 0.78rem;
+  opacity: 0.6;
+}
+
+h1 {
+  font-size: clamp(2.4rem, 7vw, 5.5rem);
+  line-height: 0.98;
+  max-width: 12ch;
+  margin: 24px 0;
+}
+
+p {
+  line-height: 1.6;
+  max-width: 64ch;
+}
