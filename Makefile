@@ -1,22 +1,21 @@
-.PHONY: test vet validate-content quality api frontend-install frontend-build
+GO ?= go
+NPM ?= npm
+
+.PHONY: test vet validate-content quality-gate frontend-build check
 
 test:
-	go test ./...
+	$(GO) test ./...
 
 vet:
-	go vet ./...
+	$(GO) vet ./...
 
 validate-content:
-	go run ./tooling/content-validator -content ./content
+	$(GO) run ./tooling/content-validator -content ./content
 
-quality:
-	go run ./tooling/quality-gate -root .
-
-api:
-	go run ./packages/mistral-api/cmd/mistral-api -content ./content
-
-frontend-install:
-	cd packages/mistral-frontend && npm install
+quality-gate:
+	$(GO) run ./tooling/quality-gate -root .
 
 frontend-build:
-	cd packages/mistral-frontend && npm run build
+	cd packages/mistral-frontend && $(NPM) install && $(NPM) run build
+
+check: test vet validate-content quality-gate
